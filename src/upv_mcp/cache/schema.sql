@@ -92,3 +92,13 @@ CREATE TABLE IF NOT EXISTS announcements (
 );
 
 CREATE INDEX IF NOT EXISTS idx_announcements_published ON announcements (published_at);
+
+-- migration:4  asignaturas de PoliformaT y su sitio de Sakai. Sin esto habria que
+-- descargar los materiales de TODAS las asignaturas para poder listar los de una.
+CREATE TABLE IF NOT EXISTS course_sites (
+    course_code    TEXT PRIMARY KEY,
+    site_id        TEXT NOT NULL,
+    course_name    TEXT NOT NULL,
+    course_acronym TEXT,
+    calendar       TEXT NOT NULL
+);

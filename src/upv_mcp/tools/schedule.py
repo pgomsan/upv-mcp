@@ -34,6 +34,10 @@ usalo para comprobar tus calculos si tienes dudas sobre que dia es hoy.
 El rango es INCLUSIVO por ambos extremos y se interpreta en hora local de Valencia. \
 Para un solo dia, pon la misma fecha en start_date y end_date.
 
+`course` filtra por asignatura: acepta el codigo UPV ("14537"), el nombre o parte \
+de el ("Vision por Computador", "vision") o las siglas ("VC"). Usalo cuando el \
+usuario nombre una asignatura, en vez de pedirlo todo y filtrar tu.
+
 Si hay mas resultados de los que caben, la respuesta viene recortada y \
 meta.truncated vale true: en ese caso dilo explicitamente y sugiere acotar el \
 rango. Nunca presentes una lista recortada como si fuera completa.
@@ -47,6 +51,7 @@ async def get_schedule(
     repo: AcademicRepository,
     start_date: date,
     end_date: date,
+    course: str | None = None,
     *,
     limit: int,
 ) -> ScheduleResult:
@@ -60,12 +65,24 @@ async def get_schedule(
     await repo.ensure_fresh()
     start, end = day_bounds(repo, start_date, end_date)
 
-    total = repo.cache.count_sessions_between(start, end)
-    sessions = repo.cache.sessions_between(start, end, limit=limit)
+    total = repo.cache.count_sessions_between(start, end, course=course)
+    sessions = repo.cache.sessions_between(start, end, course=course, limit=limit)
+
+    # Un filtro que no encaja con nada devuelve vacio, y sin aviso parece que no hay
+    # clases ese dia en vez de que la asignatura no existe.
+    nota = None
+    if course and total == 0:
+        conocidas = ", ".join(sorted(c.name for c in repo.cache.courses_by_code().values()))
+        nota = (
+            f"Ninguna asignatura coincide con '{course}'. Tus asignaturas son: "
+            f"{conocidas}. No afirmes que no hay clases sin comprobar el nombre."
+        )
 
     return ScheduleResult(
         range_start=start,
         range_end=end,
         sessions=sessions,
-        meta=build_meta(repo, total_matching=total, returned=len(sessions)),
+        meta=build_meta(
+            repo, total_matching=total, returned=len(sessions), extra_note=nota
+        ),
     )

@@ -35,6 +35,7 @@ from upv_mcp.models import (
     Announcement,
     Assignment,
     Course,
+    CourseSite,
     EventKind,
     Material,
     SourceName,
@@ -306,8 +307,8 @@ class PoliformatSource:
                 if titulo := titulos.get(sid):
                     activos[sid] = Course(code=curso.code, name=titulo)
 
-            # Dentro de la misma sesion: un login de CAS para todo el refresco.
-            materiales = await self._materiales(cliente, activos)
+        # Los materiales NO se descargan aqui: son una peticion por asignatura y se
+        # piden bajo demanda al leer su resource (ver fetch_materials).
 
         entregas: list[Assignment] = []
         for tarea in tareas:
@@ -335,31 +336,33 @@ class PoliformatSource:
 
         return SourcePayload(
             assignments=unicas,
-            materials=materiales,
             announcements=anuncios,
+            course_sites=[
+                CourseSite(course=curso, site_id=sid) for sid, curso in activos.items()
+            ],
             fetched_at=datetime.now(self._tz),
         )
 
-    async def _materiales(
-        self, cliente: SakaiClient, activos: dict[str, Course]
-    ) -> list[Material]:
-        """Lista los recursos de cada asignatura activa.
+    async def fetch_materials(self, site_id: str, curso: Course) -> list[Material]:
+        """Materiales de UNA asignatura, bajo demanda.
 
-        Recibe el cliente ya autenticado en vez de abrir el suyo: cada SakaiClient
-        hace un login contra CAS, y repetirlo seria maltratar el SSO de la
-        universidad sin ninguna necesidad.
+        Antes se descargaban los de todas en cada refresco: una peticion por
+        asignatura a 0,5 req/s son ~22 s, que se pagaban aunque el usuario solo
+        preguntara por su proxima clase. Ahora se piden solo al leer el resource
+        correspondiente.
 
-        Se piden metadatos, nunca el contenido de los ficheros: una sola asignatura
-        tiene 37 PDFs.
+        Se piden metadatos, nunca el contenido de los ficheros.
         """
-        materiales: list[Material] = []
-        for site_id, curso in activos.items():
+        async with SakaiClient(self._settings) as cliente:
             try:
                 datos = await cliente.get_json(f"/direct/content/site/{site_id}.json")
             except SourceError:
-                continue  # Una asignatura sin recursos no debe tumbar el resto.
-            for recurso in datos.get("content_collection", []):
-                if material := self._material(recurso, curso):
-                    materiales.append(material)
-        materiales.sort(key=lambda m: (m.course.name, m.title))
+                return []  # Una asignatura sin recursos no es un error.
+
+        materiales = [
+            material
+            for recurso in datos.get("content_collection", [])
+            if (material := self._material(recurso, curso))
+        ]
+        materiales.sort(key=lambda m: m.title)
         return materiales

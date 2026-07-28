@@ -87,7 +87,9 @@ Requiere `upv-mcp-config set poliformat`.
 | 17 | "¿que entregue en Vision por Computador?" | `list_upcoming_deadlines` con `days_back` | Aqui SI debe mirar atras. Es el caso que justifica el parametro. |
 | 18 | "¿ha dicho algo el profe de Robotica Movil?" | `list_announcements` | Trae autor y fecha. No confundir con deadlines. |
 | 19 | "¿donde estan los apuntes de Redes Industriales?" | **Resource**, no tool | Debe leer `upv://materiales/14541`, no llamar a ninguna tool. |
-| 20 | "¿que asignaturas tienen material?" | **Resource** `upv://materiales` | Lista con codigos y numero de recursos. |
+| 20 | "¿que asignaturas tienen material?" | **Resource** `upv://materiales` | Lista de asignaturas con su URI. No debe tardar: no descarga nada. |
+| 20b | "¿que entregas tengo de Vision por Computador?" | `list_upcoming_deadlines` con `course` | Debe usar el filtro, no pedir todo y descartar. |
+| 20c | "¿que clases tengo de Redes esta semana?" | `get_schedule` con `course` | Igual. Con un nombre inventado debe decir que esa asignatura no es suya. |
 
 ## Bloque 6 — Vacio y bordes
 

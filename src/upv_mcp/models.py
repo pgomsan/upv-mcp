@@ -77,6 +77,17 @@ class Course(BaseModel):
     )
 
 
+class CourseSite(BaseModel):
+    """Asignatura y el sitio de Sakai que la contiene.
+
+    Hace falta para poder pedir los materiales de una asignatura concreta sin
+    descargar los de todas: la URL es /direct/content/site/<site_id>.
+    """
+
+    course: Course
+    site_id: str = Field(description="Id del sitio en Sakai, p.ej. 'GRA_14541_2025'.")
+
+
 class Location(BaseModel):
     """Aula y edificio. `raw` conserva el texto original por si el parseo falla."""
 

@@ -17,9 +17,9 @@ todo ocurre en tu ordenador, en solo lectura y solo sobre tu cuenta.
 
 | Tool | Para que sirve |
 |---|---|
-| `get_schedule(start_date, end_date)` | Clases en un rango de fechas |
+| `get_schedule(start_date, end_date, course)` | Clases en un rango de fechas |
 | `get_next_class()` | La siguiente sesion desde ahora, con aula y hora |
-| `list_upcoming_deadlines(days_ahead, days_back, pending_only)` | Entregas, con estado y nota ([ver limitacion](#limitaciones)) |
+| `list_upcoming_deadlines(days_ahead, days_back, pending_only, course)` | Entregas, con estado y nota ([ver limitacion](#limitaciones)) |
 | `list_announcements(days_back)` | Avisos publicados por los profesores |
 
 ## Resources
@@ -31,7 +31,10 @@ todo ocurre en tu ordenador, en solo lectura y solo sobre tu cuenta.
 
 Los materiales van como *resources* y no como tool porque son contenido navegable,
 no una accion. Nunca se descarga el contenido de los ficheros: solo su nombre,
-tamano, fecha y URL.
+tamano, fecha y URL, y **solo de la asignatura que abras**.
+
+El filtro `course` de las tools acepta el codigo (`14537`), el nombre o parte de el
+(`vision`) o las siglas (`VC`).
 
 ## Instalacion
 

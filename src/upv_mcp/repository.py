@@ -114,11 +114,11 @@ class AcademicRepository:
             self._nombres_reales(payload.assignments),
             fetched_at=payload.fetched_at,
         )
-        self._cache.replace_materials(
+        self._cache.replace_course_sites(
             "poliformat",
             [
-                m.model_copy(update={"course": conocidos.get(m.course.code, m.course)})
-                for m in payload.materials
+                s.model_copy(update={"course": conocidos.get(s.course.code, s.course)})
+                for s in payload.course_sites
             ],
         )
         self._cache.replace_announcements(
@@ -128,6 +128,37 @@ class AcademicRepository:
                 for a in payload.announcements
             ],
         )
+
+    async def ensure_materials(self, course_code: str) -> bool:
+        """Descarga los materiales de UNA asignatura si no estan al dia.
+
+        Perezoso a proposito: bajarlos todos en cada refresco costaba ~22 s que se
+        pagaban aunque el usuario solo preguntara por su proxima clase. Un resource
+        es contenido que se lee bajo demanda, y asi se comporta.
+
+        Devuelve False si no se pudo consultar, para que quien renderiza pueda
+        decirlo en vez de mostrar una lista vacia sin explicacion.
+        """
+        if self._poliformat is None:
+            return False
+
+        clave = f"materials:{course_code}"
+        if not self._cache.is_calendar_stale(clave, self._settings.cache_ttl_seconds):
+            return True
+
+        sitio = self._cache.course_site(course_code)
+        if sitio is None:
+            return False
+
+        try:
+            materiales = await self._poliformat.fetch_materials(sitio.site_id, sitio.course)
+        except (SourceError, OSError):
+            self._poliformat_failed = True
+            return False
+
+        self._cache.replace_materials(f"poliformat:{course_code}", materiales)
+        self._cache.touch_calendar(clave)
+        return True
 
     def _nombres_reales(self, assignments: Sequence[Assignment]) -> list[Assignment]:
         """Sustituye los titulos de PoliformaT por el nombre oficial de la asignatura.

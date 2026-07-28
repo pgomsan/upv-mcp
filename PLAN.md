@@ -121,6 +121,13 @@ Nunca se descarga el contenido de los ficheros, solo metadatos y URL. Una sola
 asignatura del usuario tiene 1159 recursos; el listado se trunca a 60 por seccion y
 lo declara en el propio texto.
 
+**Y se descargan de forma perezosa**, solo al abrir el resource de una asignatura.
+En la primera version se bajaban los de todas en cada refresco: una peticion por
+asignatura a 0,5 req/s son ~22 s, y se pagaban aunque el usuario solo preguntara por
+su proxima clase. El refresco en frio paso de 44 s a 13 s, y abrir una asignatura
+concreta cuesta ~5 s. Es ademas lo coherente con que sea un resource: contenido que
+se lee bajo demanda.
+
 ### Sin evals automaticas en la v0
 
 Se descartaron a peticion: la validacion es manual en Claude Desktop. En su lugar
@@ -160,11 +167,17 @@ algun sitio de la UPV, todavia por localizar. Dos vias posibles:
 Al conectarlo, el aviso de cobertura desaparece solo, igual que desaparecio el de
 PoliformaT al integrarlo.
 
-### v1.2 — Mejoras sobre lo ya construido
+### v1.2 — Transversal pendiente
 
-- **Refresco selectivo**: PoliformaT tarda ~1 peticion por asignatura para los
-  materiales. Cachear por asignatura con TTL propio evitaria rehacerlo entero.
-- **Filtrar por asignatura** en `get_schedule` y `list_upcoming_deadlines`.
+- **Publicar el repo**: hoy solo existe en local, y el README ya apunta a una URL de
+  GitHub que no existe. Sin repo publico no hay pieza de portfolio.
+- **CI en GitHub Actions** con `pytest` + `mypy --strict` + `ruff` (el fallback por
+  variable de entorno ya permite correr sin llavero).
+- **Pasar el guion de `docs/manual-testing.md`** entero al menos una vez.
+- **Bajar el refresco de 13 s**: son 4 llamadas base a 0,5 req/s mas el login CAS.
+  Subir el limite a 1 req/s lo dejaria en ~9 s y seguiria siendo muy conservador
+  para 5 peticiones cada 6 horas, pero es una decision sobre cuanto apretar a la
+  infraestructura de la universidad, no una optimizacion obvia.
 
 ### v2 — Reserva de salas
 
@@ -173,11 +186,9 @@ sobre el mundo necesita confirmacion explicita del usuario, idempotencia y una v
 de cancelacion. Antes de implementarla hay que decidir como se anota una tool
 destructiva o con efectos, via `ToolAnnotations` del SDK.
 
-### Trabajo transversal pendiente
+### Mas adelante
 
-- CI en GitHub Actions con `pytest` + `mypy --strict` + `ruff` (el fallback por
-  variable de entorno ya permite correr sin llavero).
 - Publicar en PyPI para que otros estudiantes instalen con `uvx upv-mcp`.
 - Subagentes para trabajo en paralelo (uno escribiendo la tool, otro las pruebas).
   El terreno esta preparado: las capas estan separadas y `add-mcp-tool` documenta el
-  procedimiento. No se crearon en la v0 a proposito.
+  procedimiento.

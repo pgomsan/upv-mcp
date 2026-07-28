@@ -42,22 +42,31 @@ def _linea(material: Material) -> str:
 
 
 async def render_index(repo: AcademicRepository) -> str:
-    """Indice en Markdown de las asignaturas que tienen materiales."""
-    await repo.ensure_fresh()
-    cursos = repo.cache.material_courses()
+    """Indice en Markdown de las asignaturas con materiales.
 
-    if not cursos:
+    No descarga nada: lista las asignaturas conocidas y sus URI. Los recursos de
+    cada una se piden al abrir su resource.
+    """
+    await repo.ensure_fresh()
+    sitios = repo.cache.course_sites()
+
+    if not sitios:
         return (
             "# Materiales\n\n"
-            "No hay materiales cacheados. Si PoliformaT no esta configurado, ejecuta "
+            "No hay asignaturas de PoliformaT. Si no lo has configurado, ejecuta "
             "`upv-mcp-config set poliformat`.\n"
         )
 
-    lineas = ["# Materiales por asignatura\n"]
-    for curso in cursos:
-        total = len(repo.cache.materials(curso.code))
+    lineas = [
+        "# Materiales por asignatura\n",
+        "_Abre la URI de una asignatura para ver sus ficheros._\n",
+    ]
+    for sitio in sitios:
+        curso = sitio.course
+        cacheados = len(repo.cache.materials(curso.code))
+        detalle = f" - {_plural(cacheados, 'recurso')}" if cacheados else ""
         lineas.append(
-            f"- **{curso.name}** ({curso.code}) - {_plural(total, 'recurso')} - "
+            f"- **{curso.name}** ({curso.code}){detalle} - "
             f"`{COURSE_URI_TEMPLATE.format(course_code=curso.code)}`"
         )
     return "\n".join(lineas) + "\n"
@@ -73,13 +82,23 @@ async def render_course(
 ) -> str:
     """Listado en Markdown de los materiales de una asignatura."""
     await repo.ensure_fresh()
+    # Descarga perezosa: solo los de esta asignatura, y solo si han caducado.
+    consultado = await repo.ensure_materials(course_code)
     materiales = repo.cache.materials(course_code)
 
     if not materiales:
-        conocidas = ", ".join(c.code for c in repo.cache.material_courses()) or "ninguna"
+        if not consultado:
+            conocidas = ", ".join(s.course.code for s in repo.cache.course_sites())
+            return (
+                f"# Materiales de {course_code}\n\n"
+                "No se pudieron consultar. Puede que ese codigo no corresponda a "
+                f"ninguna asignatura tuya (conocidas: {conocidas or 'ninguna'}) o que "
+                "PoliformaT no respondiera. NO concluyas que la asignatura no tiene "
+                "materiales.\n"
+            )
         return (
             f"# Materiales de {course_code}\n\n"
-            f"No hay materiales para esa asignatura. Con materiales: {conocidas}.\n"
+            "Esta asignatura no tiene ningun recurso publicado en PoliformaT.\n"
         )
 
     nombre = materiales[0].course.name

@@ -41,6 +41,8 @@ preguntan por algo YA PASADO ("que entregue en Vision por Computador"). Incluir 
 pasado sin que lo pidan entierra lo que importa.
 - pending_only: solo lo que consta como no entregado. Para "que tengo sin hacer". \
 Lo de estado unknown queda fuera de este filtro a proposito.
+- course: filtra por asignatura. Acepta codigo ("14537"), nombre o parte de el \
+("vision") o siglas ("VC"). Usalo cuando nombren una asignatura.
 
 EXAMENES: NO tienes acceso al calendario de examenes de la UPV. En PoliformaT hay \
 tareas tituladas "Examen" que no lo son, y examenes que no son tarea, asi que no se \
@@ -64,6 +66,7 @@ async def list_upcoming_deadlines(
     days_ahead: int = DEFAULT_DAYS_AHEAD,
     days_back: int = 0,
     pending_only: bool = False,
+    course: str | None = None,
     *,
     limit: int,
 ) -> DeadlinesResult:
@@ -79,13 +82,13 @@ async def list_upcoming_deadlines(
     if pending_only:
         # `is_pending` solo es cierto para lo que consta explicitamente como NO
         # entregado: lo desconocido no se cuela como pendiente.
-        todas = repo.cache.assignments_between(start, end)
+        todas = repo.cache.assignments_between(start, end, course=course)
         filtradas = [a for a in todas if a.is_pending]
         total = len(filtradas)
         deadlines = filtradas[:limit]
     else:
-        total = repo.cache.count_assignments_between(start, end)
-        deadlines = repo.cache.assignments_between(start, end, limit=limit)
+        total = repo.cache.count_assignments_between(start, end, course=course)
+        deadlines = repo.cache.assignments_between(start, end, course=course, limit=limit)
 
     desconocidas = sum(
         1

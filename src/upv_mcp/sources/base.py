@@ -19,7 +19,13 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Protocol, runtime_checkable
 
-from upv_mcp.models import Announcement, Assignment, ClassSession, Material
+from upv_mcp.models import (
+    Announcement,
+    Assignment,
+    ClassSession,
+    CourseSite,
+    Material,
+)
 
 
 class SourceError(RuntimeError):
@@ -46,6 +52,7 @@ class SourcePayload:
     assignments: list[Assignment] = field(default_factory=list)
     materials: list[Material] = field(default_factory=list)
     announcements: list[Announcement] = field(default_factory=list)
+    course_sites: list[CourseSite] = field(default_factory=list)
     fetched_at: datetime | None = None
     stale: bool = False
 

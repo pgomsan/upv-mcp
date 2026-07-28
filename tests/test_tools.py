@@ -339,3 +339,58 @@ async def test_el_estado_sobrevive_a_la_cache(
 
     assert hecha.submission is not None
     assert hecha.submission.status.value == "submitted"
+
+
+# -- Filtro por asignatura -------------------------------------------------------
+
+
+async def test_schedule_filtra_por_nombre_parcial(repo: AcademicRepository) -> None:
+    """El usuario dice "Estadistica", no "14530"."""
+    todo = await get_schedule(repo, date(2024, 1, 1), date(2026, 12, 31), limit=200)
+    filtrado = await get_schedule(
+        repo, date(2024, 1, 1), date(2026, 12, 31), "estad", limit=200
+    )
+
+    assert 0 < len(filtrado.sessions) < len(todo.sessions)
+    assert all("Estad" in s.course.name for s in filtrado.sessions)
+
+
+async def test_schedule_filtra_por_codigo_y_por_siglas(repo: AcademicRepository) -> None:
+    por_codigo = await get_schedule(
+        repo, date(2024, 1, 1), date(2026, 12, 31), "14530", limit=200
+    )
+    por_siglas = await get_schedule(
+        repo, date(2024, 1, 1), date(2026, 12, 31), "EST", limit=200
+    )
+
+    assert por_codigo.sessions
+    assert {s.uid for s in por_codigo.sessions} == {s.uid for s in por_siglas.sessions}
+
+
+async def test_schedule_asignatura_inexistente_avisa(repo: AcademicRepository) -> None:
+    """Sin aviso, un filtro que no encaja parece "no tienes clase ese dia"."""
+    resultado = await get_schedule(
+        repo, date(2024, 1, 1), date(2026, 12, 31), "Quimica Organica", limit=50
+    )
+
+    assert resultado.sessions == []
+    nota = resultado.meta.coverage_note or ""
+    assert "Ninguna asignatura coincide" in nota
+    assert "Estadística" in nota, "debe listar las asignaturas reales"
+
+
+async def test_deadlines_filtra_por_asignatura(
+    tmp_path: Path, horario_ics: Path, examenes_ics: Path
+) -> None:
+    settings = Settings(
+        schedule_ics_file=horario_ics, exams_ics_file=examenes_ics, data_dir=tmp_path / "d"
+    )
+    with CacheRepository(settings.db_path) as cache:
+        repo = _repo_en(settings, cache, datetime(2026, 1, 1, tzinfo=MADRID))
+
+        todas = await list_upcoming_deadlines(repo, 60, limit=50)
+        solo = await list_upcoming_deadlines(repo, 60, 0, False, "Estadistica", limit=50)
+
+        assert len(todas.deadlines) == 2
+        assert len(solo.deadlines) == 1
+        assert "Estad" in solo.deadlines[0].course.name

@@ -103,10 +103,11 @@ async def get_schedule(
     start_date: date,
     end_date: date,
     ctx: Context[AppContext],
+    course: str | None = None,
 ) -> ScheduleResult:
     app = ctx.request_context.lifespan_context
     return await schedule_tool.get_schedule(
-        app.repo, start_date, end_date, limit=app.settings.max_results
+        app.repo, start_date, end_date, course, limit=app.settings.max_results
     )
 
 
@@ -128,10 +129,16 @@ async def list_upcoming_deadlines(
     days_ahead: int = deadlines_tool.DEFAULT_DAYS_AHEAD,
     days_back: int = 0,
     pending_only: bool = False,
+    course: str | None = None,
 ) -> DeadlinesResult:
     app = ctx.request_context.lifespan_context
     return await deadlines_tool.list_upcoming_deadlines(
-        app.repo, days_ahead, days_back, pending_only, limit=app.settings.max_results
+        app.repo,
+        days_ahead,
+        days_back,
+        pending_only,
+        course,
+        limit=app.settings.max_results,
     )
 
 

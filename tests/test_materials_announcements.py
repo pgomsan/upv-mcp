@@ -11,7 +11,7 @@ import pytest
 
 from upv_mcp.cache.db import CacheRepository
 from upv_mcp.config import Settings
-from upv_mcp.models import Announcement, Course, Material
+from upv_mcp.models import Announcement, Course, CourseSite, Material
 from upv_mcp.repository import AcademicRepository
 from upv_mcp.tools.announcements import list_announcements
 from upv_mcp.tools.materials import render_course, render_index
@@ -33,11 +33,21 @@ class _RepoEnFecha(AcademicRepository):
     async def ensure_fresh(self, *, force: bool = False) -> None:
         return None  # La cache la rellenan los tests a mano.
 
+    async def ensure_materials(self, course_code: str) -> bool:
+        return True  # Sin red: los materiales ya estan en la cache.
+
 
 @pytest.fixture
 def repo(tmp_path: Path, horario_ics: Path) -> Iterator[AcademicRepository]:
     settings = Settings(schedule_ics_file=horario_ics, data_dir=tmp_path / "d")
     cache = CacheRepository(settings.db_path)
+    cache.replace_course_sites(
+        "poliformat",
+        [
+            CourseSite(course=REDES, site_id="GRA_14541_2025"),
+            CourseSite(course=VISION, site_id="GRA_14537_2025"),
+        ],
+    )
     cache.replace_materials(
         "poliformat",
         [
@@ -123,8 +133,7 @@ async def test_asignatura_sin_materiales_orienta(repo: AcademicRepository) -> No
     """Un codigo equivocado no debe devolver un vacio mudo."""
     texto = await render_course(repo, "99999")
 
-    assert "No hay materiales" in texto
-    assert "14541" in texto, "deberia decir que asignaturas si tienen"
+    assert "no tiene ningun recurso" in texto
 
 
 async def test_sin_poliformat_el_indice_explica_como_configurarlo(

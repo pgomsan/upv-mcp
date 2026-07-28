@@ -172,3 +172,67 @@ async def test_avisa_si_poliformat_nunca_se_ha_consultado(
 
     assert "todavia no se ha consultado" in nota
     assert "ni especules sobre por que faltan" in nota
+
+
+async def test_los_materiales_no_se_bajan_en_el_refresco(
+    settings: Settings, cache: CacheRepository
+) -> None:
+    """Regresion de rendimiento: bajarlos todos costaba ~22 s en cada refresco frio.
+
+    Se pagaban aunque el usuario solo preguntara por su proxima clase.
+    """
+
+    class _Poliformat:
+        def __init__(self) -> None:
+            self.materiales_pedidos = 0
+
+        @property
+        def name(self) -> str:
+            return "poliformat"
+
+        async def fetch(self, *, force_refresh: bool = False) -> SourcePayload:
+            return SourcePayload(fetched_at=datetime.now(UTC))
+
+        async def fetch_materials(self, site_id: str, curso: object) -> list[object]:
+            self.materiales_pedidos += 1
+            return []
+
+    poliformat = _Poliformat()
+    repo = AcademicRepository(settings, cache, poliformat=poliformat)  # type: ignore[arg-type]
+
+    await repo.ensure_fresh()
+
+    assert poliformat.materiales_pedidos == 0, "un refresco no debe bajar materiales"
+
+
+async def test_los_materiales_se_bajan_solo_de_la_asignatura_pedida(
+    settings: Settings, cache: CacheRepository
+) -> None:
+    from upv_mcp.models import Course, CourseSite
+
+    pedidos: list[str] = []
+
+    class _Poliformat:
+        @property
+        def name(self) -> str:
+            return "poliformat"
+
+        async def fetch(self, *, force_refresh: bool = False) -> SourcePayload:
+            return SourcePayload(fetched_at=datetime.now(UTC))
+
+        async def fetch_materials(self, site_id: str, curso: object) -> list[object]:
+            pedidos.append(site_id)
+            return []
+
+    cache.replace_course_sites(
+        "poliformat",
+        [
+            CourseSite(course=Course(code="14541", name="Redes"), site_id="GRA_14541_2025"),
+            CourseSite(course=Course(code="14537", name="Vision"), site_id="GRA_14537_2025"),
+        ],
+    )
+    repo = AcademicRepository(settings, cache, poliformat=_Poliformat())  # type: ignore[arg-type]
+
+    await repo.ensure_materials("14541")
+
+    assert pedidos == ["GRA_14541_2025"], "solo la asignatura pedida"

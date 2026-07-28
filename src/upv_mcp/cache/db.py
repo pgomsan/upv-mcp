@@ -22,6 +22,7 @@ from upv_mcp.models import (
     Assignment,
     ClassSession,
     Course,
+    CourseSite,
     EventKind,
     Location,
     Material,
@@ -31,7 +32,19 @@ from upv_mcp.models import (
 )
 
 #: Version de esquema que espera este codigo. Subirla obliga a anadir migracion.
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
+
+#: Migracion 4: asignaturas de PoliformaT y su sitio de Sakai. Permite pedir los
+#: materiales de una sola asignatura en vez de los de todas.
+_MIGRACION_4 = """
+CREATE TABLE IF NOT EXISTS course_sites (
+    course_code    TEXT PRIMARY KEY,
+    site_id        TEXT NOT NULL,
+    course_name    TEXT NOT NULL,
+    course_acronym TEXT,
+    calendar       TEXT NOT NULL
+);
+"""
 
 #: Migracion 3: estado de entrega de cada tarea.
 _MIGRACION_3 = """
@@ -108,6 +121,8 @@ def migrate(conn: sqlite3.Connection) -> None:
             conn.executescript(_MIGRACION_2)
         if current < 3:
             conn.executescript(_MIGRACION_3)
+        if current < 4:
+            conn.executescript(_MIGRACION_4)
     conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     conn.commit()
 
@@ -269,12 +284,30 @@ class CacheRepository:
 
     # -- Lectura ------------------------------------------------------------------
 
+    def _course_clause(self, course: str | None) -> tuple[str, list[object]]:
+        """Filtro por asignatura: por codigo exacto, o por texto en nombre o siglas.
+
+        El usuario dice "Vision por Computador" o "VC", no "14537", asi que la
+        busqueda por nombre es por subcadena y sin distinguir mayusculas.
+        """
+        if not course:
+            return "", []
+        termino = course.strip()
+        if termino.isdigit():
+            return " AND course_code = ?", [termino]
+        patron = f"%{termino.lower()}%"
+        return (
+            " AND (LOWER(course_name) LIKE ? OR LOWER(COALESCE(course_acronym,'')) = ?)",
+            [patron, termino.lower()],
+        )
+
     def sessions_between(
         self,
         start: datetime,
         end: datetime,
         *,
         kinds: Iterable[EventKind] | None = None,
+        course: str | None = None,
         limit: int | None = None,
     ) -> list[ClassSession]:
         """Sesiones que empiezan dentro de [start, end], ordenadas cronologicamente.
@@ -290,6 +323,9 @@ class CacheRepository:
                 return []
             sql += f" AND kind IN ({','.join('?' * len(values))})"
             params.extend(values)
+        clausula, extra = self._course_clause(course)
+        sql += clausula
+        params.extend(extra)
         sql += " ORDER BY start_utc ASC"
         if limit is not None:
             sql += " LIMIT ?"
@@ -302,6 +338,7 @@ class CacheRepository:
         end: datetime,
         *,
         kinds: Iterable[EventKind] | None = None,
+        course: str | None = None,
     ) -> int:
         """Cuenta sin materializar, para poder informar de truncado con honestidad."""
         sql = "SELECT COUNT(*) FROM sessions WHERE start_utc >= ? AND start_utc <= ?"
@@ -312,6 +349,9 @@ class CacheRepository:
                 return 0
             sql += f" AND kind IN ({','.join('?' * len(values))})"
             params.extend(values)
+        clausula, extra = self._course_clause(course)
+        sql += clausula
+        params.extend(extra)
         return int(self._conn.execute(sql, params).fetchone()[0])
 
     def next_session_after(self, moment: datetime) -> ClassSession | None:
@@ -322,21 +362,78 @@ class CacheRepository:
         return self._row_to_session(row) if row else None
 
     def assignments_between(
-        self, start: datetime, end: datetime, *, limit: int | None = None
+        self,
+        start: datetime,
+        end: datetime,
+        *,
+        course: str | None = None,
+        limit: int | None = None,
     ) -> list[Assignment]:
-        sql = "SELECT * FROM assignments WHERE due_utc >= ? AND due_utc <= ? ORDER BY due_utc ASC"
+        sql = "SELECT * FROM assignments WHERE due_utc >= ? AND due_utc <= ?"
         params: list[object] = [_iso_utc(start), _iso_utc(end)]
+        clausula, extra = self._course_clause(course)
+        sql += clausula
+        params.extend(extra)
+        sql += " ORDER BY due_utc ASC"
         if limit is not None:
             sql += " LIMIT ?"
             params.append(limit)
         return [self._row_to_assignment(r) for r in self._conn.execute(sql, params)]
 
-    def count_assignments_between(self, start: datetime, end: datetime) -> int:
-        return int(
-            self._conn.execute(
-                "SELECT COUNT(*) FROM assignments WHERE due_utc >= ? AND due_utc <= ?",
-                (_iso_utc(start), _iso_utc(end)),
-            ).fetchone()[0]
+    def count_assignments_between(
+        self, start: datetime, end: datetime, *, course: str | None = None
+    ) -> int:
+        sql = "SELECT COUNT(*) FROM assignments WHERE due_utc >= ? AND due_utc <= ?"
+        params: list[object] = [_iso_utc(start), _iso_utc(end)]
+        clausula, extra = self._course_clause(course)
+        sql += clausula
+        params.extend(extra)
+        return int(self._conn.execute(sql, params).fetchone()[0])
+
+    def replace_course_sites(self, calendar: str, sites: Sequence[CourseSite]) -> None:
+        with self._conn:
+            self._conn.execute("DELETE FROM course_sites WHERE calendar = ?", (calendar,))
+            self._conn.executemany(
+                """
+                INSERT OR REPLACE INTO course_sites (
+                    course_code, site_id, course_name, course_acronym, calendar
+                ) VALUES (?,?,?,?,?)
+                """,
+                [
+                    (s.course.code, s.site_id, s.course.name, s.course.acronym, calendar)
+                    for s in sites
+                ],
+            )
+
+    def course_sites(self) -> list[CourseSite]:
+        """Asignaturas de PoliformaT conocidas, ordenadas por nombre."""
+        return [
+            CourseSite(
+                course=Course(
+                    code=row["course_code"],
+                    name=row["course_name"],
+                    acronym=row["course_acronym"],
+                ),
+                site_id=row["site_id"],
+            )
+            for row in self._conn.execute(
+                "SELECT * FROM course_sites ORDER BY course_name ASC"
+            )
+        ]
+
+    def course_site(self, course_code: str) -> CourseSite | None:
+        row = self._conn.execute(
+            "SELECT * FROM course_sites WHERE course_code = ?", (course_code,)
+        ).fetchone()
+        if row is None:
+            return None
+        return CourseSite(
+            course=Course(
+                code=row["course_code"],
+                name=row["course_name"],
+                acronym=row["course_acronym"],
+            ),
+            site_id=row["site_id"],
         )
 
     def replace_materials(self, calendar: str, materials: Sequence[Material]) -> None:
@@ -392,6 +489,17 @@ class CacheRepository:
                     )
                     for a in announcements
                 ],
+            )
+
+    def touch_calendar(self, calendar: str, fetched_at: datetime | None = None) -> None:
+        """Marca un origen como consultado ahora, sin tocar sus datos."""
+        with self._conn:
+            self._conn.execute(
+                """
+                INSERT INTO calendar_meta (calendar, fetched_at) VALUES (?,?)
+                ON CONFLICT(calendar) DO UPDATE SET fetched_at = excluded.fetched_at
+                """,
+                (calendar, _iso_utc(fetched_at or datetime.now(UTC))),
             )
 
     def materials(self, course_code: str | None = None) -> list[Material]:
