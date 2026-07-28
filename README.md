@@ -67,14 +67,22 @@ cat url.txt | uv run upv-mcp-config set schedule && rm url.txt
 {
   "mcpServers": {
     "upv": {
-      "command": "uv",
+      "command": "/Users/TU_USUARIO/.local/bin/uv",
       "args": ["--directory", "/ruta/absoluta/a/upv-mcp", "run", "upv-mcp"]
     }
   }
 }
 ```
 
-Reinicia Claude Desktop. Deberias ver las tres tools disponibles.
+> **Usa la ruta absoluta de `uv`** (`which uv` te la dice). Las apps con interfaz
+> grafica de macOS no heredan el `PATH` de tu terminal, asi que poner `"uv"` a secas
+> hace que el servidor no arranque y sin mensaje de error visible. Es el fallo mas
+> comun al instalar esto.
+
+Reinicia Claude Desktop **por completo** (`Cmd+Q`, no solo cerrar la ventana): el
+fichero de configuracion solo se lee al arrancar. Deberias ver las tres tools.
+
+Si no aparecen, el log esta en `~/Library/Logs/Claude/mcp-server-upv.log`.
 
 **Claude Code**:
 
