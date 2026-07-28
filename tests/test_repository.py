@@ -109,3 +109,66 @@ async def test_caducidad_dispara_refresco(settings: Settings, cache: CacheReposi
     await repo.ensure_fresh()
 
     assert not cache.is_empty()
+
+
+# -- Refresco independiente por origen -------------------------------------------
+
+
+class _PoliformatFalso:
+    """Origen PoliformaT que cuenta cuantas veces se le consulta."""
+
+    def __init__(self) -> None:
+        self.llamadas = 0
+
+    @property
+    def name(self) -> str:
+        return "poliformat"
+
+    async def fetch(self, *, force_refresh: bool = False) -> SourcePayload:
+        self.llamadas += 1
+        return SourcePayload(assignments=[], fetched_at=datetime.now(UTC))
+
+
+async def test_poliformat_se_consulta_aunque_el_horario_este_fresco(
+    settings: Settings, cache: CacheRepository
+) -> None:
+    """Regresion: el .ics fresco tapaba a PoliformaT y nunca se consultaba.
+
+    Como cada refresco del horario renovaba el TTL global, la ventana en que
+    PoliformaT podia ejecutarse casi nunca se daba: el usuario veia cero entregas
+    y el modelo se inventaba explicaciones.
+    """
+    cache.replace_calendar("schedule", [], fetched_at=datetime.now(UTC))
+    poliformat = _PoliformatFalso()
+    repo = AcademicRepository(settings, cache, poliformat=poliformat)  # type: ignore[arg-type]
+
+    await repo.ensure_fresh()
+
+    assert poliformat.llamadas == 1, "el horario fresco no debe tapar a PoliformaT"
+
+
+async def test_poliformat_fresco_no_se_reconsulta(
+    settings: Settings, cache: CacheRepository
+) -> None:
+    """Cada origen tiene su propia caducidad: sin esto, un login de CAS por llamada."""
+    cache.replace_calendar("schedule", [], fetched_at=datetime.now(UTC))
+    cache.replace_calendar("poliformat", [], fetched_at=datetime.now(UTC))
+    poliformat = _PoliformatFalso()
+    repo = AcademicRepository(settings, cache, poliformat=poliformat)  # type: ignore[arg-type]
+
+    await repo.ensure_fresh()
+
+    assert poliformat.llamadas == 0
+
+
+async def test_avisa_si_poliformat_nunca_se_ha_consultado(
+    settings: Settings, cache: CacheRepository
+) -> None:
+    """Una lista vacia sin explicacion hace que el modelo invente el motivo."""
+    poliformat = _PoliformatFalso()
+    repo = AcademicRepository(settings, cache, poliformat=poliformat)  # type: ignore[arg-type]
+
+    nota = repo.coverage_note() or ""
+
+    assert "todavia no se ha consultado" in nota
+    assert "ni especules sobre por que faltan" in nota

@@ -501,6 +501,21 @@ class CacheRepository:
         row = self._conn.execute("SELECT MIN(fetched_at) AS f FROM calendar_meta").fetchone()
         return _from_iso(row["f"], self._tz) if row and row["f"] else None
 
+    def is_calendar_stale(
+        self, calendar: str, ttl_seconds: int, now: datetime | None = None
+    ) -> bool:
+        """Caducidad de UN origen concreto.
+
+        Cada origen se refresca por su cuenta. Mirar solo la frescura global hacia
+        que un origen nunca consultado quedara tapado por otro que si estaba al dia.
+        Un calendario sin registro esta, por definicion, caducado.
+        """
+        stamp = self.fetched_at(calendar)
+        if stamp is None:
+            return True
+        moment = now or datetime.now(self._tz)
+        return (moment - stamp).total_seconds() > ttl_seconds
+
     def is_stale(self, ttl_seconds: int, now: datetime | None = None) -> bool:
         oldest = self.oldest_fetched_at()
         if oldest is None:

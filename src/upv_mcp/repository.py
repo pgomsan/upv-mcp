@@ -62,27 +62,33 @@ class AcademicRepository:
         Si la descarga falla pero hay datos, no propaga el error: marca `stale` y
         sigue. Un servidor local que revienta porque no hay wifi es inutil.
         """
-        needs_refresh = force or self._cache.is_stale(self._settings.cache_ttl_seconds)
-        if not needs_refresh:
-            self._last_refresh_failed = False
-            return
+        ttl = self._settings.cache_ttl_seconds
 
-        try:
-            for spec in self._settings.calendars:
-                payload = await self._source.read_calendar(spec)
-                self._cache.replace_calendar(
-                    spec.name,
-                    payload.sessions,
-                    payload.assignments,
-                    fetched_at=payload.fetched_at,
-                )
+        # Cada origen decide su propia caducidad. Antes se comprobaba una sola vez
+        # para todo y se salia con `return`, de modo que si el .ics estaba fresco
+        # PoliformaT no llegaba a consultarse NUNCA: como cada refresco del horario
+        # renovaba el TTL, la ventana para consultarlo casi nunca se daba y el
+        # usuario veia cero entregas sin ninguna explicacion.
+        if force or self._cache.is_calendar_stale("schedule", ttl):
+            try:
+                for spec in self._settings.calendars:
+                    payload = await self._source.read_calendar(spec)
+                    self._cache.replace_calendar(
+                        spec.name,
+                        payload.sessions,
+                        payload.assignments,
+                        fetched_at=payload.fetched_at,
+                    )
+                self._last_refresh_failed = False
+            except (SourceError, OSError):
+                if self._cache.is_empty():
+                    raise
+                self._last_refresh_failed = True
+        else:
             self._last_refresh_failed = False
-        except (SourceError, OSError):
-            if self._cache.is_empty():
-                raise
-            self._last_refresh_failed = True
 
-        await self._refresh_poliformat()
+        if force or self._cache.is_calendar_stale("poliformat", ttl):
+            await self._refresh_poliformat()
 
     async def _refresh_poliformat(self) -> None:
         """Refresca las entregas de PoliformaT, si esta configurado.
@@ -165,6 +171,14 @@ class AcademicRepository:
             notes.append(
                 "No se pudo consultar PoliformaT en este refresco, asi que puede haber "
                 "entregas que no aparezcan."
+            )
+        elif self._cache.fetched_at("poliformat") is None:
+            # Sin esto, una lista vacia se interpreta como "no tiene entregas" y el
+            # modelo acaba inventando explicaciones (sitios archivados, etc.).
+            notes.append(
+                "PoliformaT esta configurado pero todavia no se ha consultado ninguna "
+                "vez, asi que NO hay datos de entregas. No concluyas que el usuario no "
+                "tiene entregas ni especules sobre por que faltan."
             )
 
         if self._last_refresh_failed:
