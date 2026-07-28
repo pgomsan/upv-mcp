@@ -1,0 +1,53 @@
+[project]
+name = "upv-mcp"
+version = "0.1.0"
+description = "Servidor MCP local que expone el calendario academico de la UPV (horarios y examenes) a clientes MCP"
+readme = "README.md"
+authors = [
+    { name = "pgomsan", email = "pgomsan@upv.es" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "mcp>=2.0.0,<3.0.0",
+    "pydantic>=2.13.0,<3.0.0",
+    "pydantic-settings>=2.7.0,<3.0.0",
+    "icalendar>=7.2.0,<8.0.0",
+    "httpx2>=2.9.0,<3.0.0",
+    "keyring>=25.7.0,<26.0.0",
+]
+
+[project.scripts]
+upv-mcp = "upv_mcp.server:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.0,<10.0.0",
+    "pytest-asyncio>=1.0.0",
+    "mypy>=2.3.0,<3.0.0",
+    "ruff>=0.14.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.14,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src", "tests"]
+
+# icalendar no distribuye stubs completos; se aisla en sources/ics.py
+[[tool.mypy.overrides]]
+module = ["icalendar.*"]
+ignore_missing_imports = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "ANN"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
