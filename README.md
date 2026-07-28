@@ -48,6 +48,14 @@ uv run upv-mcp-config show            # comprobar (enmascarada)
 
 Se guarda en el llavero del sistema (Keychain en macOS).
 
+Si lo lanzas donde no hay terminal interactiva (un script, CI, o el `!` de Claude
+Code), la URL se lee de stdin. Pasala desde un fichero para que no quede en el
+historial del shell:
+
+```bash
+cat url.txt | uv run upv-mcp-config set schedule && rm url.txt
+```
+
 ### 3. Registra el servidor en tu cliente
 
 **Claude Desktop** — edita `claude_desktop_config.json`:

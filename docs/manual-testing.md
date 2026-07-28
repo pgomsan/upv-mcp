@@ -15,6 +15,9 @@ uv run upv-mcp-config set schedule     # pega tu URL iCal, no se muestra por pan
 uv run upv-mcp-config show             # confirma que esta guardada
 ```
 
+Hazlo en una terminal de verdad. Sin TTY la URL se lee de stdin
+(`cat url.txt | uv run upv-mcp-config set schedule`).
+
 Registra el servidor en Claude Desktop (ver README) y reinicia la aplicacion.
 
 ## Que se comprueba en cada caso

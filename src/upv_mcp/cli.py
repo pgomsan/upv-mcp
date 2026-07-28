@@ -29,6 +29,32 @@ def _mask(value: str) -> str:
     return f"{value[:32]}...{value[-4:]} ({len(value)} chars)"
 
 
+def _read_url(calendar: str) -> str:
+    """Lee la URL sin dejarla en el historial del shell.
+
+    Con terminal interactiva se pide sin eco. Sin ella (`claude !`, un script, CI)
+    getpass lanzaria EOFError con un traceback feo, asi que se lee de stdin: eso
+    permite `cat url.txt | upv-mcp-config set schedule` sin que el token pase por
+    la linea de comandos.
+    """
+    if sys.stdin.isatty():
+        try:
+            return getpass(f"URL iCal para '{calendar}' (no se mostrara): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            return ""
+
+    url = sys.stdin.readline().strip()
+    if not url:
+        print(
+            "No hay terminal interactiva y stdin llego vacio.\n"
+            "Ejecutalo en una terminal, o pasa la URL por stdin sin que quede en el\n"
+            "historial del shell:\n"
+            "    cat fichero-con-la-url.txt | upv-mcp-config set schedule",
+            file=sys.stderr,
+        )
+    return url
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="upv-mcp-config",
@@ -49,9 +75,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "set":
         key = _CALENDARS[args.calendar]
-        url = getpass(f"URL iCal para '{args.calendar}' (no se mostrara): ").strip()
+        url = _read_url(args.calendar)
         if not url:
-            print("Cancelado: URL vacia.", file=sys.stderr)
+            print("Cancelado: no se recibio ninguna URL.", file=sys.stderr)
             return 1
         if not url.startswith(("http://", "https://", "webcal://")):
             print("Cancelado: no parece una URL.", file=sys.stderr)
