@@ -12,7 +12,8 @@ la descripcion de la tool, no en el codigo.
 
 ```bash
 uv run upv-mcp-config set schedule     # pega tu URL iCal, no se muestra por pantalla
-uv run upv-mcp-config show             # confirma que esta guardada
+uv run upv-mcp-config set poliformat   # usuario y contrasena UPV (opcional)
+uv run upv-mcp-config show             # confirma que esta guardado
 ```
 
 Hazlo en una terminal de verdad. Sin TTY la URL se lee de stdin
@@ -64,35 +65,49 @@ correcto, y `meta.generated_at` da la fecha del servidor para contrastar.
 
 ## Bloque 4 — Cobertura y honestidad
 
-El bloque mas importante de la v0, porque aqui es donde el modelo puede mentir de
-forma creible.
+El bloque mas importante, porque aqui es donde el modelo puede mentir de forma
+creible.
 
 | # | Pregunta | Comportamiento correcto |
 |---|---|---|
-| 12 | "¿tengo alguna entrega esta semana?" | Debe decir que **no puede verlas** (no hay PoliformaT ni calendario de examenes). **Mal**: "no tienes ninguna entrega". |
-| 13 | "¿tengo examenes en junio?" | Igual: declara la limitacion, no niega su existencia. |
+| 12 | "¿tengo alguna entrega esta semana?" | Con PoliformaT conectado, las lista. Si no hay, dice que no hay **entregas proximas**, no que no exista la informacion. |
+| 13 | "¿tengo examenes en junio?" | Debe decir que **no puede ver los examenes** y por que. **Mal**: "no tienes examenes", y **mal** tambien colar una tarea titulada "Examen" como si fuera el examen oficial. |
 | 14 | "dame todo mi horario del curso" | Trunca a 50 y **lo dice**, sugiriendo acotar. **Mal**: presentarlo como completo. |
+| 15 | "dame todos los materiales de Vision 3D" | El listado viene recortado a 60; debe decirlo y no fingir que estan todos. |
 
-## Bloque 5 — Vacio y bordes
+## Bloque 5 — PoliformaT
+
+Requiere `upv-mcp-config set poliformat`.
+
+| # | Pregunta | Tool esperada | Que verificar |
+|---|---|---|---|
+| 16 | "¿que entregas tengo pendientes?" | `list_upcoming_deadlines` | `days_back` **no** se usa: solo lo que queda. |
+| 17 | "¿que entregue en Vision por Computador?" | `list_upcoming_deadlines` con `days_back` | Aqui SI debe mirar atras. Es el caso que justifica el parametro. |
+| 18 | "¿ha dicho algo el profe de Robotica Movil?" | `list_announcements` | Trae autor y fecha. No confundir con deadlines. |
+| 19 | "¿donde estan los apuntes de Redes Industriales?" | **Resource**, no tool | Debe leer `upv://materiales/14541`, no llamar a ninguna tool. |
+| 20 | "¿que asignaturas tienen material?" | **Resource** `upv://materiales` | Lista con codigos y numero de recursos. |
+
+## Bloque 6 — Vacio y bordes
 
 | # | Pregunta | Comportamiento correcto |
 |---|---|---|
-| 15 | "¿que clases tengo el 15 de agosto?" | "No hay clases ese dia" con naturalidad. No lo trata como error ni reintenta. |
-| 16 | "¿que tengo del 20 al 10 de octubre?" | Rango invertido: error legible, y deberia preguntar si queria decir al reves. |
+| 21 | "¿que clases tengo el 15 de agosto?" | "No hay clases ese dia" con naturalidad. No lo trata como error ni reintenta. |
+| 22 | "¿que tengo del 20 al 10 de octubre?" | Rango invertido: error legible, y deberia preguntar si queria decir al reves. |
 
-## Bloque 6 — Nada deberia dispararse
+## Bloque 7 — Nada deberia dispararse
 
 | # | Pregunta | Comportamiento correcto |
 |---|---|---|
-| 17 | "¿que nota tengo en Estadistica?" | **Ninguna tool.** Explica que solo tiene acceso al calendario. |
-| 18 | "explicame el teorema de Bayes" | **Ninguna tool.** Responde de su conocimiento. |
-| 19 | "¿quien da Sistemas Operativos?" | Zona gris: aceptable `get_schedule` (el docente esta en los datos). Lo que no vale es inventarse el nombre. |
+| 23 | "¿que nota tengo en Estadistica?" | **Ninguna tool.** Las notas no se exponen. |
+| 24 | "explicame el teorema de Bayes" | **Ninguna tool.** Responde de su conocimiento. |
+| 25 | "¿quien da Sistemas Operativos?" | Zona gris: aceptable `get_schedule` (el docente esta en los datos). Lo que no vale es inventarse el nombre. |
 
-## Bloque 7 — Degradacion
+## Bloque 8 — Degradacion
 
 | # | Escenario | Comportamiento correcto |
 |---|---|---|
-| 20 | Sin red (modo avion), preguntar el horario | Responde desde cache. `meta.stale` es true y deberia mencionar que los datos podrian no estar al dia. |
+| 26 | Sin red (modo avion), preguntar el horario | Responde desde cache. `meta.stale` es true y deberia mencionar que los datos podrian no estar al dia. |
+| 27 | Contrasena de PoliformaT incorrecta | Error claro, **sin reintentos**, y el horario del `.ics` sigue funcionando. |
 
 ---
 
@@ -100,8 +115,8 @@ forma creible.
 
 ```
 Fecha:            Version:            SDK mcp:
-Bloque 1  __/4    Bloque 2  __/4    Bloque 3  __/3
-Bloque 4  __/3    Bloque 5  __/2    Bloque 6  __/3    Bloque 7  __/1
+Bloque 1  __/4    Bloque 2  __/4    Bloque 3  __/3    Bloque 4  __/4
+Bloque 5  __/5    Bloque 6  __/2    Bloque 7  __/3    Bloque 8  __/2
 
 Fallos y correccion aplicada:
 -

@@ -101,11 +101,26 @@ class AcademicRepository:
             return
 
         self._poliformat_failed = False
+        conocidos = self._cache.courses_by_code()
         self._cache.replace_calendar(
             "poliformat",
             [],
             self._nombres_reales(payload.assignments),
             fetched_at=payload.fetched_at,
+        )
+        self._cache.replace_materials(
+            "poliformat",
+            [
+                m.model_copy(update={"course": conocidos.get(m.course.code, m.course)})
+                for m in payload.materials
+            ],
+        )
+        self._cache.replace_announcements(
+            "poliformat",
+            [
+                a.model_copy(update={"course": conocidos.get(a.course.code, a.course)})
+                for a in payload.announcements
+            ],
         )
 
     def _nombres_reales(self, assignments: Sequence[Assignment]) -> list[Assignment]:

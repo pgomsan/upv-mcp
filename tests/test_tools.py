@@ -215,3 +215,45 @@ async def test_todas_las_respuestas_llevan_hora_del_servidor(
     for resultado in (schedule, siguiente, limites):
         assert resultado.meta.generated_at > momento_antes
         assert resultado.meta.generated_at.tzinfo is not None
+
+
+# -- days_back (mirar atras) -----------------------------------------------------
+
+
+async def test_deadlines_por_defecto_no_mira_atras(
+    tmp_path: Path, horario_ics: Path, examenes_ics: Path
+) -> None:
+    """Lo normal es preguntar por lo que queda, no por lo ya entregado."""
+    settings = Settings(
+        schedule_ics_file=horario_ics, exams_ics_file=examenes_ics, data_dir=tmp_path / "d"
+    )
+    with CacheRepository(settings.db_path) as cache:
+        # Los examenes del fixture son de enero de 2026; nos situamos despues.
+        repo = _repo_en(settings, cache, datetime(2026, 3, 1, tzinfo=MADRID))
+
+        sin_pasado = await list_upcoming_deadlines(repo, 30, limit=50)
+        assert sin_pasado.deadlines == []
+        assert sin_pasado.days_back == 0
+
+
+async def test_deadlines_con_days_back_recupera_lo_pasado(
+    tmp_path: Path, horario_ics: Path, examenes_ics: Path
+) -> None:
+    """Para 'que entregue en Vision por Computador' hay que poder mirar atras."""
+    settings = Settings(
+        schedule_ics_file=horario_ics, exams_ics_file=examenes_ics, data_dir=tmp_path / "d"
+    )
+    with CacheRepository(settings.db_path) as cache:
+        repo = _repo_en(settings, cache, datetime(2026, 3, 1, tzinfo=MADRID))
+
+        con_pasado = await list_upcoming_deadlines(repo, 30, 90, limit=50)
+        assert len(con_pasado.deadlines) == 2
+        assert con_pasado.days_back == 90
+        assert all(d.due < repo.now() for d in con_pasado.deadlines)
+
+
+async def test_deadlines_valida_days_back(repo: AcademicRepository) -> None:
+    with pytest.raises(ValueError, match="days_back debe estar entre 0 y 365"):
+        await list_upcoming_deadlines(repo, 14, -1, limit=50)
+    with pytest.raises(ValueError, match="days_back debe estar entre 0 y 365"):
+        await list_upcoming_deadlines(repo, 14, 400, limit=50)

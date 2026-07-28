@@ -10,14 +10,21 @@ from __future__ import annotations
 import pytest
 
 from upv_mcp.server import mcp
+from upv_mcp.tools import announcements as announcements_tool
 from upv_mcp.tools import deadlines as deadlines_tool
+from upv_mcp.tools import materials as materials_tool
 from upv_mcp.tools import next_class as next_class_tool
 from upv_mcp.tools import schedule as schedule_tool
 
-TOOL_NAMES = {"get_schedule", "get_next_class", "list_upcoming_deadlines"}
+TOOL_NAMES = {
+    "get_schedule",
+    "get_next_class",
+    "list_upcoming_deadlines",
+    "list_announcements",
+}
 
 
-async def test_las_tres_tools_estan_registradas() -> None:
+async def test_las_tools_estan_registradas() -> None:
     tools = await mcp.list_tools()
     assert {t.name for t in tools} == TOOL_NAMES
 
@@ -35,7 +42,18 @@ async def test_el_esquema_de_entrada_es_el_esperado() -> None:
 
     deadlines = tools["list_upcoming_deadlines"].input_schema
     assert "days_ahead" in deadlines["properties"]
+    assert "days_back" in deadlines["properties"]
     assert not deadlines.get("required")
+
+    assert "days_back" in tools["list_announcements"].input_schema["properties"]
+
+
+async def test_mirar_atras_es_opcional_y_apagado_por_defecto() -> None:
+    """Lo normal es preguntar por el curso en marcha, no por lo ya entregado."""
+    tools = {t.name: t for t in await mcp.list_tools()}
+    days_back = tools["list_upcoming_deadlines"].input_schema["properties"]["days_back"]
+
+    assert days_back.get("default") == 0
 
 
 async def test_las_tools_declaran_salida_estructurada() -> None:
@@ -50,6 +68,7 @@ async def test_las_tools_declaran_salida_estructurada() -> None:
         (schedule_tool.DESCRIPTION, ["get_next_class", "list_upcoming_deadlines"]),
         (next_class_tool.DESCRIPTION, ["get_schedule", "list_upcoming_deadlines"]),
         (deadlines_tool.DESCRIPTION, ["get_schedule", "get_next_class"]),
+        (announcements_tool.DESCRIPTION, ["get_schedule", "list_upcoming_deadlines"]),
     ],
 )
 def test_cada_descripcion_desambigua_frente_a_las_otras(
@@ -58,19 +77,29 @@ def test_cada_descripcion_desambigua_frente_a_las_otras(
     """La descripcion es lo que decide si el modelo elige bien.
 
     Cada una debe decir explicitamente cuando NO usarla y redirigir por nombre a
-    las otras dos, que es donde se producen las confusiones.
+    las tools con las que se puede confundir.
     """
     assert "NO LA USES" in description
     for otra in otras:
         assert otra in description, f"la descripcion no redirige a {otra}"
 
 
-def test_la_tool_de_deadlines_declara_su_limitacion() -> None:
-    """Es la unica que hoy puede devolver vacio por falta de datos, no por no haberlos."""
+def test_la_tool_de_deadlines_no_promete_examenes() -> None:
+    """Los examenes no los cubre ninguna fuente, y no se adivinan por titulo.
+
+    En PoliformaT hay tareas tituladas "Examen" que no lo son, y examenes que no
+    son tarea. La descripcion debe impedir que el modelo deduzca lo que no sabe.
+    """
     texto = deadlines_tool.DESCRIPTION
-    assert "NO PUEDES VER" in texto
-    assert "PoliformaT" in texto
+    assert "no puedes verlos" in texto
+    assert "NO deduzcas que no tiene examenes" in texto
     assert "coverage_note" in texto
+
+
+def test_los_materiales_no_son_una_tool() -> None:
+    """Son contenido navegable: van como resource, y la tool vecina lo dice."""
+    assert "upv://materiales" in announcements_tool.DESCRIPTION
+    assert materials_tool.INDEX_URI == "upv://materiales"
 
 
 async def test_las_descripciones_son_compactas() -> None:
@@ -78,3 +107,11 @@ async def test_las_descripciones_son_compactas() -> None:
     for tool in await mcp.list_tools():
         assert tool.description is not None
         assert len(tool.description) < 2000, f"{tool.name} demasiado larga"
+
+
+async def test_los_resources_de_materiales_estan_registrados() -> None:
+    plantillas = {t.uri_template for t in await mcp.list_resource_templates()}
+    estaticos = {str(r.uri) for r in await mcp.list_resources()}
+
+    assert materials_tool.COURSE_URI_TEMPLATE in plantillas
+    assert materials_tool.INDEX_URI in estaticos

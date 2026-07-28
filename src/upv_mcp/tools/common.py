@@ -28,10 +28,16 @@ def day_bounds(
     )
 
 
-def horizon_bounds(repo: AcademicRepository, days_ahead: int) -> tuple[datetime, datetime]:
-    """Ventana desde ahora hasta dentro de N dias."""
+def horizon_bounds(
+    repo: AcademicRepository, days_ahead: int, *, days_back: int = 0
+) -> tuple[datetime, datetime]:
+    """Ventana desde ahora hasta dentro de N dias.
+
+    `days_back` la extiende hacia atras. Por defecto 0: la pregunta habitual es
+    sobre lo que queda por hacer, no sobre lo ya entregado.
+    """
     now = repo.now()
-    return now, now + timedelta(days=days_ahead)
+    return now - timedelta(days=days_back), now + timedelta(days=days_ahead)
 
 
 def build_meta(

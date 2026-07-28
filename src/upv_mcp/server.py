@@ -20,9 +20,16 @@ from mcp.server.mcpserver import Context, MCPServer
 from upv_mcp import __version__
 from upv_mcp.cache.db import CacheRepository
 from upv_mcp.config import Settings, load_settings
-from upv_mcp.models import DeadlinesResult, NextClassResult, ScheduleResult
+from upv_mcp.models import (
+    AnnouncementsResult,
+    DeadlinesResult,
+    NextClassResult,
+    ScheduleResult,
+)
 from upv_mcp.repository import AcademicRepository
+from upv_mcp.tools import announcements as announcements_tool
 from upv_mcp.tools import deadlines as deadlines_tool
+from upv_mcp.tools import materials as materials_tool
 from upv_mcp.tools import next_class as next_class_tool
 from upv_mcp.tools import schedule as schedule_tool
 
@@ -53,13 +60,30 @@ async def app_lifespan(server: MCPServer) -> AsyncIterator[AppContext]:
     (falta la URL iCal) se manifieste al arrancar el servidor, con un mensaje util,
     en vez de dentro de la primera llamada a una tool.
     """
+    global _app
     settings = load_settings()
     settings.ensure_dirs()
     cache = CacheRepository(settings.db_path, settings.timezone)
+    contexto = AppContext(settings=settings, repo=AcademicRepository(settings, cache))
+    _app = contexto
     try:
-        yield AppContext(settings=settings, repo=AcademicRepository(settings, cache))
+        yield contexto
     finally:
+        _app = None
         cache.close()
+
+
+#: El SDK no permite inyectar Context en un resource SIN variables en la URI
+#: ("Context injection for static resources is not supported"), asi que el indice
+#: de materiales necesita esta referencia. Los resources con plantilla y las tools
+#: siguen usando la inyeccion normal.
+_app: AppContext | None = None
+
+
+def _current_app() -> AppContext:
+    if _app is None:  # pragma: no cover - solo si se usa fuera del servidor
+        raise RuntimeError("El servidor no esta inicializado.")
+    return _app
 
 
 mcp = MCPServer(
@@ -102,10 +126,54 @@ async def get_next_class(ctx: Context[AppContext]) -> NextClassResult:
 async def list_upcoming_deadlines(
     ctx: Context[AppContext],
     days_ahead: int = deadlines_tool.DEFAULT_DAYS_AHEAD,
+    days_back: int = 0,
 ) -> DeadlinesResult:
     app = ctx.request_context.lifespan_context
     return await deadlines_tool.list_upcoming_deadlines(
-        app.repo, days_ahead, limit=app.settings.max_results
+        app.repo, days_ahead, days_back, limit=app.settings.max_results
+    )
+
+
+@mcp.tool(
+    title="Avisos de los profesores",
+    description=announcements_tool.DESCRIPTION,
+)
+async def list_announcements(
+    ctx: Context[AppContext],
+    days_back: int = announcements_tool.DEFAULT_DAYS_BACK,
+) -> AnnouncementsResult:
+    app = ctx.request_context.lifespan_context
+    return await announcements_tool.list_announcements(
+        app.repo, days_back, limit=app.settings.max_results
+    )
+
+
+# --------------------------------------------------------------------------------------
+# Resources: los materiales son contenido navegable, no una accion, asi que se
+# exponen como MCP resources y no como tool.
+# --------------------------------------------------------------------------------------
+
+
+@mcp.resource(
+    materials_tool.INDEX_URI,
+    title="Materiales por asignatura",
+    description="Indice de las asignaturas con apuntes y enunciados en PoliformaT.",
+    mime_type="text/markdown",
+)
+async def materiales_index() -> str:
+    return await materials_tool.render_index(_current_app().repo)
+
+
+@mcp.resource(
+    materials_tool.COURSE_URI_TEMPLATE,
+    title="Materiales de una asignatura",
+    description="Apuntes, enunciados y enlaces de una asignatura, por codigo UPV "
+    "(p.ej. 14541). Devuelve metadatos y URL, no el contenido de los ficheros.",
+    mime_type="text/markdown",
+)
+async def materiales_de_asignatura(course_code: str, ctx: Context[AppContext]) -> str:
+    return await materials_tool.render_course(
+        ctx.request_context.lifespan_context.repo, course_code
     )
 
 

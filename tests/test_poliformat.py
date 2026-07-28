@@ -197,3 +197,17 @@ async def test_resultado_ordenado_y_sin_duplicados(source: PoliformatSource) -> 
 
     assert fechas == sorted(fechas)
     assert len({a.uid for a in payload.assignments}) == len(payload.assignments)
+
+
+def test_filtra_la_basura_de_proyectos_subidos_enteros() -> None:
+    """Un profesor sube un repo de PyCharm y aparecen 200 ficheros de .idea/."""
+    from upv_mcp.sources.poliformat import _es_ruido
+
+    base = "https://poliformat.upv.es/access/content/group/GRA_14536_2025"
+    assert _es_ruido(".gitignore", f"{base}/proyecto/.gitignore")
+    assert _es_ruido("workspace.xml", f"{base}/proyecto/.idea/workspace.xml")
+    assert _es_ruido("cache.pyc", f"{base}/x/__pycache__/cache.pyc")
+    assert _es_ruido("nb.ipynb", f"{base}/x/.ipynb_checkpoints/nb.ipynb")
+
+    assert not _es_ruido("Tema 1.pdf", f"{base}/Tema 1.pdf")
+    assert not _es_ruido("practica.ipynb", f"{base}/cuadernos/practica.ipynb")

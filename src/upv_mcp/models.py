@@ -97,16 +97,40 @@ class Assignment(BaseModel):
 
 
 class Material(BaseModel):
-    """Recurso de una asignatura (apuntes, enunciados).
+    """Recurso de una asignatura (apuntes, enunciados, enlaces).
 
-    Sin uso en la v0. Se expondra como MCP resource en la v1 sobre PoliformaT.
+    Se expone como MCP *resource*, no como tool: es contenido navegable que el
+    cliente decide cuando leer, no una accion que ejecutar.
+
+    Nunca se descarga el fichero: solo sus metadatos y la URL. Una sola asignatura
+    tiene 37 PDFs, y volcarlos al contexto seria justo lo contrario de lo que
+    persigue este servidor.
     """
 
     course: Course
     title: str
     url: str
+    content_type: str | None = Field(
+        default=None, description="MIME, p.ej. 'application/pdf'. 'collection' es una carpeta."
+    )
     updated_at: datetime | None = None
     size_bytes: int | None = None
+
+    @property
+    def is_folder(self) -> bool:
+        return self.content_type == "collection"
+
+
+class Announcement(BaseModel):
+    """Aviso publicado por un profesor en una asignatura."""
+
+    uid: str
+    course: Course
+    title: str
+    body: str = Field(description="Texto del aviso, ya sin HTML.")
+    author: str | None = None
+    published_at: datetime
+    url: str | None = None
 
 
 # --------------------------------------------------------------------------------------
@@ -166,5 +190,15 @@ class DeadlinesResult(BaseModel):
     """Respuesta de `list_upcoming_deadlines`."""
 
     horizon_days: int
+    days_back: int = Field(
+        default=0, description="Dias hacia atras incluidos. 0 = solo lo que esta por venir."
+    )
     deadlines: list[Assignment]
+    meta: ResultMeta
+
+
+class AnnouncementsResult(BaseModel):
+    """Respuesta de `list_announcements`."""
+
+    announcements: list[Announcement]
     meta: ResultMeta

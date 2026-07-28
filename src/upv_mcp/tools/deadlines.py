@@ -29,40 +29,56 @@ NO LA USES:
 lo inmediato). Una clase no es una fecha limite y esta tool no las devuelve.
 - Si el usuario da un rango con inicio y fin concretos -> usa get_schedule.
 
-LIMITACION IMPORTANTE DE ESTA VERSION, leela antes de responder: este servidor solo \
-esta conectado al calendario de HORARIOS de la UPV, que contiene clases pero NO \
-examenes, y la integracion con PoliformaT (donde viven las entregas) todavia no \
-existe. Por eso esta tool puede devolver una lista VACIA aunque el estudiante si \
-tenga examenes o entregas pendientes.
+PARAMETROS:
+- days_ahead: cuantos dias hacia adelante mirar. Por defecto 14.
+- days_back: cuantos dias hacia ATRAS incluir. Por defecto 0, y ese es el caso \
+normal: casi siempre se pregunta por lo que queda por hacer. Usalo solo si el \
+usuario pregunta explicitamente por algo YA PASADO ("que entregue en Vision por \
+Computador", "cuando era la practica 3", "que entregas hubo en mayo"). Si dudas, \
+dejalo en 0: incluir el pasado sin que lo pidan llena la respuesta de entregas \
+cerradas y entierra lo que de verdad importa.
 
-Consulta siempre meta.coverage_note y traslada esa limitacion al usuario con \
-claridad: di que NO PUEDES VER sus examenes y entregas y de donde tendria que \
-sacarlos. NO digas ni sugieras que no tiene ninguno.\
+EXAMENES: este servidor NO tiene acceso al calendario de examenes de la UPV. En \
+PoliformaT algunos examenes aparecen como tarea y otros no, y hay tareas tituladas \
+"Examen" que no lo son, asi que NO se clasifican: todo lo que devuelve esta tool \
+son entregas. Si el usuario pregunta por examenes, di que no puedes verlos y que \
+lo consulte en la web de su titulacion. NO deduzcas que no tiene examenes.
+
+Consulta siempre meta.coverage_note antes de responder y traslada al usuario \
+cualquier limitacion que indique. Una lista vacia con days_back=0 significa que no \
+hay entregas proximas, lo cual es normal en vacaciones o entre cursos.\
 """
 
 #: Horizonte por defecto. Dos semanas cubre la pregunta tipica sin inundar contexto.
 DEFAULT_DAYS_AHEAD = 14
 MAX_DAYS_AHEAD = 365
 
+#: Mirar atras es la excepcion, no lo normal: por defecto 0.
+MAX_DAYS_BACK = 365
+
 
 async def list_upcoming_deadlines(
     repo: AcademicRepository,
     days_ahead: int = DEFAULT_DAYS_AHEAD,
+    days_back: int = 0,
     *,
     limit: int,
 ) -> DeadlinesResult:
     """Implementacion. `server.py` la envuelve y le pone la descripcion MCP."""
     if days_ahead < 1 or days_ahead > MAX_DAYS_AHEAD:
         raise ValueError(f"days_ahead debe estar entre 1 y {MAX_DAYS_AHEAD}, no {days_ahead}.")
+    if days_back < 0 or days_back > MAX_DAYS_BACK:
+        raise ValueError(f"days_back debe estar entre 0 y {MAX_DAYS_BACK}, no {days_back}.")
 
     await repo.ensure_fresh()
-    start, end = horizon_bounds(repo, days_ahead)
+    start, end = horizon_bounds(repo, days_ahead, days_back=days_back)
 
     total = repo.cache.count_assignments_between(start, end)
     deadlines = repo.cache.assignments_between(start, end, limit=limit)
 
     return DeadlinesResult(
         horizon_days=days_ahead,
+        days_back=days_back,
         deadlines=deadlines,
         meta=build_meta(repo, total_matching=total, returned=len(deadlines)),
     )

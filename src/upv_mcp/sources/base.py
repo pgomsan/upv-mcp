@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Protocol, runtime_checkable
 
-from upv_mcp.models import Assignment, ClassSession
+from upv_mcp.models import Announcement, Assignment, ClassSession, Material
 
 
 class SourceError(RuntimeError):
@@ -36,10 +36,16 @@ class RetryableError(SourceError):
 
 @dataclass(frozen=True)
 class SourcePayload:
-    """Lo que devuelve una fuente: sesiones con hora y sitio, y fechas limite."""
+    """Lo que devuelve una fuente.
+
+    Una fuente rellena solo lo que sabe: el .ics trae sesiones, PoliformaT trae
+    entregas, materiales y anuncios.
+    """
 
     sessions: list[ClassSession] = field(default_factory=list)
     assignments: list[Assignment] = field(default_factory=list)
+    materials: list[Material] = field(default_factory=list)
+    announcements: list[Announcement] = field(default_factory=list)
     fetched_at: datetime | None = None
     stale: bool = False
 

@@ -18,16 +18,48 @@ from types import TracebackType
 from zoneinfo import ZoneInfo
 
 from upv_mcp.models import (
+    Announcement,
     Assignment,
     ClassSession,
     Course,
     EventKind,
     Location,
+    Material,
     SourceName,
 )
 
 #: Version de esquema que espera este codigo. Subirla obliga a anadir migracion.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+
+#: DDL de la migracion 2. El fichero schema.sql lo trae tambien, para bases nuevas;
+#: aqui se repite lo minimo para poder aplicarlo sobre una base ya existente.
+_MIGRACION_2 = """
+CREATE TABLE IF NOT EXISTS materials (
+    url            TEXT PRIMARY KEY,
+    calendar       TEXT NOT NULL,
+    course_code    TEXT NOT NULL,
+    course_name    TEXT NOT NULL,
+    course_acronym TEXT,
+    title          TEXT NOT NULL,
+    content_type   TEXT,
+    updated_at     TEXT,
+    size_bytes     INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_materials_course ON materials (course_code);
+CREATE TABLE IF NOT EXISTS announcements (
+    uid            TEXT PRIMARY KEY,
+    calendar       TEXT NOT NULL,
+    course_code    TEXT NOT NULL,
+    course_name    TEXT NOT NULL,
+    course_acronym TEXT,
+    title          TEXT NOT NULL,
+    body           TEXT NOT NULL,
+    author         TEXT,
+    published_at   TEXT NOT NULL,
+    url            TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_announcements_published ON announcements (published_at);
+"""
 
 
 def _load_schema() -> str:
@@ -55,7 +87,11 @@ def migrate(conn: sqlite3.Connection) -> None:
     if current >= SCHEMA_VERSION:
         return
     if current < 1:
+        # Base nueva: schema.sql ya trae el esquema completo, incluida la v2.
         conn.executescript(_load_schema())
+    elif current < 2:
+        # Base existente de la v0: solo faltan las tablas de PoliformaT.
+        conn.executescript(_MIGRACION_2)
     conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     conn.commit()
 
@@ -266,6 +302,131 @@ class CacheRepository:
                 (_iso_utc(start), _iso_utc(end)),
             ).fetchone()[0]
         )
+
+    def replace_materials(self, calendar: str, materials: Sequence[Material]) -> None:
+        with self._conn:
+            self._conn.execute("DELETE FROM materials WHERE calendar = ?", (calendar,))
+            self._conn.executemany(
+                """
+                INSERT OR REPLACE INTO materials (
+                    url, calendar, course_code, course_name, course_acronym,
+                    title, content_type, updated_at, size_bytes
+                ) VALUES (?,?,?,?,?,?,?,?,?)
+                """,
+                [
+                    (
+                        m.url,
+                        calendar,
+                        m.course.code,
+                        m.course.name,
+                        m.course.acronym,
+                        m.title,
+                        m.content_type,
+                        _iso_utc(m.updated_at) if m.updated_at else None,
+                        m.size_bytes,
+                    )
+                    for m in materials
+                ],
+            )
+
+    def replace_announcements(
+        self, calendar: str, announcements: Sequence[Announcement]
+    ) -> None:
+        with self._conn:
+            self._conn.execute("DELETE FROM announcements WHERE calendar = ?", (calendar,))
+            self._conn.executemany(
+                """
+                INSERT OR REPLACE INTO announcements (
+                    uid, calendar, course_code, course_name, course_acronym,
+                    title, body, author, published_at, url
+                ) VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                [
+                    (
+                        a.uid,
+                        calendar,
+                        a.course.code,
+                        a.course.name,
+                        a.course.acronym,
+                        a.title,
+                        a.body,
+                        a.author,
+                        _iso_utc(a.published_at),
+                        a.url,
+                    )
+                    for a in announcements
+                ],
+            )
+
+    def materials(self, course_code: str | None = None) -> list[Material]:
+        """Materiales, opcionalmente de una sola asignatura."""
+        sql = "SELECT * FROM materials"
+        params: list[object] = []
+        if course_code:
+            sql += " WHERE course_code = ?"
+            params.append(course_code)
+        sql += " ORDER BY course_name ASC, title ASC"
+        return [
+            Material(
+                course=_course(row),
+                title=row["title"],
+                url=row["url"],
+                content_type=row["content_type"],
+                updated_at=_from_iso(row["updated_at"], self._tz) if row["updated_at"] else None,
+                size_bytes=row["size_bytes"],
+            )
+            for row in self._conn.execute(sql, params)
+        ]
+
+    def material_courses(self) -> list[Course]:
+        """Asignaturas que tienen algun material, para el indice de resources."""
+        filas = self._conn.execute(
+            """
+            SELECT course_code, course_name, course_acronym
+            FROM materials GROUP BY course_code ORDER BY course_name
+            """
+        )
+        return [
+            Course(
+                code=row["course_code"],
+                name=row["course_name"],
+                acronym=row["course_acronym"],
+            )
+            for row in filas
+        ]
+
+    def announcements(self, *, since: datetime | None = None, limit: int | None = None) -> list[
+        Announcement
+    ]:
+        sql = "SELECT * FROM announcements"
+        params: list[object] = []
+        if since is not None:
+            sql += " WHERE published_at >= ?"
+            params.append(_iso_utc(since))
+        sql += " ORDER BY published_at DESC"
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(limit)
+        return [
+            Announcement(
+                uid=row["uid"],
+                course=_course(row),
+                title=row["title"],
+                body=row["body"],
+                author=row["author"],
+                published_at=_from_iso(row["published_at"], self._tz),
+                url=row["url"],
+            )
+            for row in self._conn.execute(sql, params)
+        ]
+
+    def count_announcements(self, *, since: datetime | None = None) -> int:
+        sql = "SELECT COUNT(*) FROM announcements"
+        params: list[object] = []
+        if since is not None:
+            sql += " WHERE published_at >= ?"
+            params.append(_iso_utc(since))
+        return int(self._conn.execute(sql, params).fetchone()[0])
 
     def courses_by_code(self) -> dict[str, Course]:
         """Asignaturas conocidas por el horario, indexadas por codigo UPV.

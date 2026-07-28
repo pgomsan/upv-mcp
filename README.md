@@ -9,16 +9,29 @@ reales.
 > → *Modelado y Control de Robots, lunes 7 de septiembre a las 15:00, AULA 1E 0.3
 > (Edificio 1E).*
 
-Se alimenta del export iCal de tu horario. **No hace scraping, no pide tu clave de
-la UPV y no manda tus datos a ningun sitio**: todo ocurre en tu ordenador.
+Se alimenta del export iCal de tu horario y, opcionalmente, de PoliformaT a traves
+de su **API REST oficial**. **No hace scraping y no manda tus datos a ningun sitio**:
+todo ocurre en tu ordenador, en solo lectura y solo sobre tu cuenta.
 
 ## Tools
 
 | Tool | Para que sirve |
 |---|---|
-| `get_schedule(start_date, end_date)` | Clases y examenes en un rango de fechas |
+| `get_schedule(start_date, end_date)` | Clases en un rango de fechas |
 | `get_next_class()` | La siguiente sesion desde ahora, con aula y hora |
-| `list_upcoming_deadlines(days_ahead)` | Fechas limite proximas ([ver limitacion](#limitaciones-de-la-v0)) |
+| `list_upcoming_deadlines(days_ahead, days_back)` | Entregas de PoliformaT ([ver limitacion](#limitaciones)) |
+| `list_announcements(days_back)` | Avisos publicados por los profesores |
+
+## Resources
+
+| Resource | Contenido |
+|---|---|
+| `upv://materiales` | Indice de asignaturas con apuntes y enunciados |
+| `upv://materiales/{codigo}` | Materiales de una asignatura (metadatos y enlaces) |
+
+Los materiales van como *resources* y no como tool porque son contenido navegable,
+no una accion. Nunca se descarga el contenido de los ficheros: solo su nombre,
+tamano, fecha y URL.
 
 ## Instalacion
 
@@ -56,6 +69,23 @@ historial del shell:
 cat url.txt | uv run upv-mcp-config set schedule && rm url.txt
 ```
 
+### 2b. Conecta PoliformaT (opcional)
+
+Para ver tus entregas, materiales y avisos:
+
+```bash
+uv run upv-mcp-config set poliformat    # usuario y contrasena de la UPV
+```
+
+Van al llavero, igual que la URL. El servidor entra por el SSO de la UPV
+(`cas.upv.es`) y lee la API REST oficial de Sakai: **solo lectura, solo tu cuenta**,
+con un limite de 0.5 peticiones por segundo.
+
+> Si te equivocas de contrasena, el servidor **no reintenta**: te lo dice y para.
+> Reintentar contra el SSO de la universidad bloquea la cuenta.
+
+Sin esto el servidor funciona igual, pero solo con el horario.
+
 ### 3. Registra el servidor en tu cliente
 
 **Claude Desktop** — edita `claude_desktop_config.json`:
@@ -90,28 +120,35 @@ Si no aparecen, el log esta en `~/Library/Logs/Claude/mcp-server-upv.log`.
 claude mcp add upv -- uv --directory /ruta/absoluta/a/upv-mcp run upv-mcp
 ```
 
-## Limitaciones de la v0
+## Limitaciones
 
-Esta version lee **solo el calendario de horarios**, que contiene clases pero **no
-examenes**. Las entregas viven en PoliformaT, que aun no esta integrado.
+**No ve tus examenes.** El calendario de horarios de la UPV contiene clases pero no
+examenes, y en PoliformaT ni todo examen es una tarea ni toda tarea es un examen:
+hay tareas tituladas «Examen parcial» que no lo son, y examenes que no aparecen como
+tarea. Clasificarlos por el titulo produciria falsos positivos y negativos, asi que
+**no se clasifican**.
 
-Por eso `list_upcoming_deadlines` puede devolver una lista vacia. El servidor avisa
-de esta limitacion en cada respuesta (`meta.coverage_note`) y las descripciones de
-las tools instruyen al modelo para que diga *«no puedo ver tus entregas»* y nunca
-*«no tienes entregas»*. Es deliberado: una respuesta falsa y creible es peor que una
-respuesta incompleta.
+El servidor declara esta limitacion en cada respuesta (`meta.coverage_note`) y las
+descripciones de las tools instruyen al modelo para que diga *«no puedo ver tus
+examenes»* y nunca *«no tienes examenes»*. Es deliberado: una respuesta falsa y
+creible es peor que una incompleta.
 
-Si tu intranet te deja generar un iCal que incluya examenes, conectalo y la tool
-empieza a funcionar sin tocar codigo:
+Si encuentras un iCal de examenes en tu intranet, conectalo y funciona sin tocar
+codigo:
 
 ```bash
 uv run upv-mcp-config set exams
 ```
 
+**Solo el curso academico en marcha.** PoliformaT acumula todas las asignaturas que
+has cursado; se sincronizan unicamente las del ultimo curso, para no llenar las
+respuestas de ruido. Para consultar entregas ya pasadas, `list_upcoming_deadlines`
+acepta `days_back`.
+
 ## Desarrollo
 
 ```bash
-uv run pytest -q         # 60 tests
+uv run pytest -q         # 122 tests
 uv run mypy              # strict, limpio
 uv run ruff check .
 ```
@@ -128,12 +165,16 @@ npx @modelcontextprotocol/inspector uv run upv-mcp
 sources/   red + parseo -> modelos          (no importa mcp)
 cache/     SQLite, migraciones versionadas  (no importa mcp)
 tools/     filtrado y forma de la respuesta (no importa mcp, httpx2 ni icalendar)
-server.py  registro de tools                (unico fichero que toca el SDK)
+server.py  registro de tools y resources    (unico fichero que toca el SDK)
 ```
 
-El objetivo de la separacion es que anadir PoliformaT en la v1 no obligue a tocar la
-capa de tools. Decisiones razonadas en [`PLAN.md`](PLAN.md); convenciones para
-contribuir en [`CLAUDE.md`](CLAUDE.md).
+La separacion se puso a prueba al integrar PoliformaT: entregas, materiales y
+avisos entraron **sin tocar una linea de `tools/`** para las tools que ya existian.
+`tests/test_architecture.py` verifica los invariantes analizando los imports con
+`ast`, asi que una violacion rompe la build.
+
+Decisiones razonadas en [`PLAN.md`](PLAN.md); convenciones para contribuir en
+[`CLAUDE.md`](CLAUDE.md).
 
 Los cambios se validan con el guion de [`docs/manual-testing.md`](docs/manual-testing.md):
 20 casos que cubren ambiguedad entre tools, fechas relativas, rangos vacios,

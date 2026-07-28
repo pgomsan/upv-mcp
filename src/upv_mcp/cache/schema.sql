@@ -52,3 +52,35 @@ CREATE TABLE IF NOT EXISTS calendar_meta (
     etag          TEXT,
     last_modified TEXT
 );
+
+-- migration:2  (v1: PoliformaT)
+-- Materiales: solo metadatos y URL. El contenido de los ficheros no se descarga
+-- nunca; una sola asignatura tiene 37 PDFs.
+CREATE TABLE IF NOT EXISTS materials (
+    url            TEXT PRIMARY KEY,
+    calendar       TEXT NOT NULL,
+    course_code    TEXT NOT NULL,
+    course_name    TEXT NOT NULL,
+    course_acronym TEXT,
+    title          TEXT NOT NULL,
+    content_type   TEXT,
+    updated_at     TEXT,
+    size_bytes     INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_materials_course ON materials (course_code);
+
+CREATE TABLE IF NOT EXISTS announcements (
+    uid            TEXT PRIMARY KEY,
+    calendar       TEXT NOT NULL,
+    course_code    TEXT NOT NULL,
+    course_name    TEXT NOT NULL,
+    course_acronym TEXT,
+    title          TEXT NOT NULL,
+    body           TEXT NOT NULL,
+    author         TEXT,
+    published_at   TEXT NOT NULL,
+    url            TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_announcements_published ON announcements (published_at);

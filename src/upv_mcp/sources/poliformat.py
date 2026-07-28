@@ -26,13 +26,20 @@ from __future__ import annotations
 
 import html
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Final
 from zoneinfo import ZoneInfo
 
 from upv_mcp.config import Settings
-from upv_mcp.models import Assignment, Course, EventKind, SourceName
-from upv_mcp.sources.base import SourcePayload
+from upv_mcp.models import (
+    Announcement,
+    Assignment,
+    Course,
+    EventKind,
+    Material,
+    SourceName,
+)
+from upv_mcp.sources.base import SourceError, SourcePayload
 from upv_mcp.sources.sakai import SakaiClient
 
 #: Los sitios de asignatura son GRA_<codigo>_<curso>. CEN_*/CDL_* no lo son.
@@ -64,6 +71,33 @@ def _parse_instante(valor: str | None, tz: ZoneInfo) -> datetime | None:
         return None
     try:
         return datetime.fromisoformat(valor.replace("Z", "+00:00")).astimezone(tz)
+    except ValueError:
+        return None
+
+
+#: Basura de proyectos subidos enteros (PyCharm, git, macOS). Un profesor sube un
+#: repositorio y aparecen 200 ficheros de .idea/ que a un alumno no le sirven de nada.
+_RUIDO: Final = re.compile(
+    r"(^|/)(\.git|\.idea|\.vscode|__pycache__|__MACOSX|\.ipynb_checkpoints)(/|$)",
+    re.IGNORECASE,
+)
+
+
+def _es_ruido(titulo: str, url: str) -> bool:
+    """Descarta ficheros ocultos y metadatos de herramientas de desarrollo."""
+    return titulo.startswith(".") or _RUIDO.search(url) is not None
+
+
+def _fecha_compacta(valor: Any, tz: ZoneInfo) -> datetime | None:  # noqa: ANN401 - JSON de Sakai
+    """El tercer formato de fecha de Sakai: `20260204081410971` (YYYYMMDDhhmmssSSS).
+
+    Lo usa `modifiedDate` de los recursos. Llega como cadena y en UTC.
+    """
+    texto = str(valor or "")
+    if len(texto) < 14 or not texto[:14].isdigit():
+        return None
+    try:
+        return datetime.strptime(texto[:14], "%Y%m%d%H%M%S").replace(tzinfo=UTC).astimezone(tz)
     except ValueError:
         return None
 
@@ -156,10 +190,45 @@ class PoliformatSource:
             source=SourceName.POLIFORMAT,
         )
 
+    def _material(self, recurso: dict[str, Any], curso: Course) -> Material | None:
+        url = recurso.get("url")
+        titulo = _limpiar(recurso.get("title"))
+        if not url or not titulo:
+            return None
+        if recurso.get("hidden") or recurso.get("visible") is False:
+            return None  # No visible para el alumno: no debe aparecer.
+        if _es_ruido(titulo, str(url)):
+            return None
+
+        return Material(
+            course=curso,
+            title=titulo,
+            url=str(url),
+            content_type=recurso.get("type"),
+            updated_at=_fecha_compacta(recurso.get("modifiedDate"), self._tz),
+            size_bytes=recurso.get("size") if isinstance(recurso.get("size"), int) else None,
+        )
+
+    def _anuncio(self, aviso: dict[str, Any], curso: Course) -> Announcement | None:
+        publicado = aviso.get("createdOn")
+        if not isinstance(publicado, int | float):
+            return None
+        cuerpo = _limpiar(aviso.get("body")) or ""
+        return Announcement(
+            uid=f"poliformat:announcement:{aviso.get('announcementId') or aviso.get('id')}",
+            course=curso,
+            title=_limpiar(aviso.get("title")) or "Aviso",
+            # Recortado: un aviso largo no debe monopolizar el contexto.
+            body=cuerpo[:1200] + ("..." if len(cuerpo) > 1200 else ""),
+            author=_limpiar(aviso.get("createdByDisplayName")),
+            published_at=datetime.fromtimestamp(float(publicado) / 1000.0, tz=self._tz),
+            url=aviso.get("entityURL"),
+        )
+
     # -- Contrato AcademicSource --------------------------------------------------
 
     async def fetch(self, *, force_refresh: bool = False) -> SourcePayload:
-        """Descarga entregas y fechas limite de las asignaturas activas."""
+        """Descarga entregas, materiales y anuncios de las asignaturas activas."""
         async with SakaiClient(self._settings) as cliente:
             tareas = (await cliente.get_json("/direct/assignment/my.json")).get(
                 "assignment_collection", []
@@ -168,18 +237,25 @@ class PoliformatSource:
                 "calendar_collection", []
             )
             sitios = (await cliente.get_json("/direct/site.json")).get("site_collection", [])
+            avisos = (await cliente.get_json("/direct/announcement/user.json")).get(
+                "announcement_collection", []
+            )
 
-        # Las asignaturas se descubren desde las tres fuentes: site.json viene
-        # incompleto y por si solo se dejaria entregas fuera.
-        ids: set[str] = {str(s.get("id", "")) for s in sitios}
-        ids |= {str(t.get("context", "")) for t in tareas}
-        ids |= {str(e.get("siteId", "")) for e in eventos}
-        activos = self._cursos_activos({i for i in ids if i})
+            # Las asignaturas se descubren desde las cuatro fuentes: site.json viene
+            # incompleto y por si solo se dejaria entregas fuera.
+            ids: set[str] = {str(s.get("id", "")) for s in sitios}
+            ids |= {str(t.get("context", "")) for t in tareas}
+            ids |= {str(e.get("siteId", "")) for e in eventos}
+            ids |= {str(a.get("siteId", "")) for a in avisos}
+            activos = self._cursos_activos({i for i in ids if i})
 
-        titulos = {str(s.get("id", "")): _limpiar(s.get("title")) for s in sitios}
-        for sid, curso in activos.items():
-            if titulo := titulos.get(sid):
-                activos[sid] = Course(code=curso.code, name=titulo)
+            titulos = {str(s.get("id", "")): _limpiar(s.get("title")) for s in sitios}
+            for sid, curso in activos.items():
+                if titulo := titulos.get(sid):
+                    activos[sid] = Course(code=curso.code, name=titulo)
+
+            # Dentro de la misma sesion: un login de CAS para todo el refresco.
+            materiales = await self._materiales(cliente, activos)
 
         entregas: list[Assignment] = []
         for tarea in tareas:
@@ -198,4 +274,40 @@ class PoliformatSource:
                 vistos.add(entrega.uid)
                 unicas.append(entrega)
 
-        return SourcePayload(assignments=unicas, fetched_at=datetime.now(self._tz))
+        anuncios: list[Announcement] = []
+        for aviso in avisos:
+            materia = activos.get(str(aviso.get("siteId", "")))
+            if materia and (anuncio := self._anuncio(aviso, materia)):
+                anuncios.append(anuncio)
+        anuncios.sort(key=lambda a: a.published_at, reverse=True)
+
+        return SourcePayload(
+            assignments=unicas,
+            materials=materiales,
+            announcements=anuncios,
+            fetched_at=datetime.now(self._tz),
+        )
+
+    async def _materiales(
+        self, cliente: SakaiClient, activos: dict[str, Course]
+    ) -> list[Material]:
+        """Lista los recursos de cada asignatura activa.
+
+        Recibe el cliente ya autenticado en vez de abrir el suyo: cada SakaiClient
+        hace un login contra CAS, y repetirlo seria maltratar el SSO de la
+        universidad sin ninguna necesidad.
+
+        Se piden metadatos, nunca el contenido de los ficheros: una sola asignatura
+        tiene 37 PDFs.
+        """
+        materiales: list[Material] = []
+        for site_id, curso in activos.items():
+            try:
+                datos = await cliente.get_json(f"/direct/content/site/{site_id}.json")
+            except SourceError:
+                continue  # Una asignatura sin recursos no debe tumbar el resto.
+            for recurso in datos.get("content_collection", []):
+                if material := self._material(recurso, curso):
+                    materiales.append(material)
+        materiales.sort(key=lambda m: (m.course.name, m.title))
+        return materiales

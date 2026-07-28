@@ -1,7 +1,8 @@
 # PLAN.md — decisiones de diseno y roadmap
 
-Estado: **v0 completa**. Tres tools sobre el export `.ics` del calendario UPV,
-sin scraping, sin credenciales de login.
+Estado: **v1 completa**. Cuatro tools y dos resources sobre dos fuentes: el export
+`.ics` del calendario UPV y PoliformaT, este ultimo via la API REST oficial de
+Sakai. Sin scraping en ningun punto.
 
 ---
 
@@ -56,19 +57,53 @@ Si la descarga falla pero hay cache, se sirve la cache con `meta.stale = true`. 
 se propaga el error si ademas la cache esta vacia. Un servidor local que revienta
 porque no hay wifi es inutil justo cuando mas falta hace (yendo a clase).
 
-### `list_upcoming_deadlines` se expone aunque devuelva vacio
+### PoliformaT se lee por API REST, no por scraping
 
-**El calendario "Horario de Clases" de la UPV no contiene ni un solo examen** (se
-verifico: 841 de 841 eventos son clases), y las entregas viven en PoliformaT, que es
-v1. La tool no tiene hoy ninguna fuente de datos.
+PoliformaT expone `/direct/`, la **API REST oficial de Sakai (EntityBroker)**, con
+JSON y 74 entity providers. Descubrirlo cambio el plan entero: la v1 estaba pensada
+como scraping de HTML y acabo siendo un cliente REST, mas estable y mucho mejor
+ciudadania.
 
-Se mantiene porque el problema real no es la lista vacia, sino lo que el modelo
-concluye de ella: "no tienes nada pendiente" es una frase falsa, util y creible. Por
-eso su descripcion le ordena responder *"no puedo verlas"* y nunca *"no tienes
-ninguna"*, y `meta.coverage_note` repite la limitacion en cada respuesta.
+El login nativo de Sakai (`POST /direct/session`) esta capado: devuelve 403 incluso
+con usuarios inexistentes, asi que no es un problema de credenciales. La unica via
+es reproducir el flujo CAS de `cas.upv.es`.
 
-El soporte para un segundo calendario de examenes esta implementado y con tests:
-conectarlo sera configuracion (`upv-mcp-config set exams`), no codigo.
+De ahi la regla que no se negocia: **un login rechazado no se reintenta jamas**.
+Reintentar contra el SSO de la universidad bloquea la cuenta. Solo los fallos de red
+son reintentables, y hay un test que falla si eso cambia.
+
+### Los examenes no se adivinan
+
+Ninguna de las dos fuentes cubre los examenes. El `.ics` de horarios trae solo
+clases (verificado: 841 de 841), y en PoliformaT **ni todo examen es una tarea ni
+toda tarea es un examen**: hay tareas tituladas "Examen parcial de laboratorio" y
+examenes que no aparecen como tarea.
+
+Se decidio no clasificar por titulo. Una heuristica asi produce falsos positivos y
+negativos, y aqui una clasificacion que miente es peor que no clasificar. Todo lo
+que devuelve `list_upcoming_deadlines` son entregas, y `meta.coverage_note` declara
+que los examenes no se ven.
+
+Es la misma regla que gobierna el resto del repo: el problema no es la respuesta
+incompleta, sino que el modelo concluya "no tienes examenes", que es una frase falsa,
+util y creible.
+
+### Mirar atras es opcional y esta apagado por defecto
+
+`list_upcoming_deadlines` acepta `days_back`, pero su valor por defecto es 0: la
+pregunta habitual es sobre lo que queda por hacer. Incluir el pasado sin que lo pidan
+llena la respuesta de entregas cerradas y entierra lo relevante. La descripcion dice
+explicitamente que solo se use ante una pregunta sobre algo ya pasado.
+
+### Los materiales son resources, no una tool
+
+Un PDF de apuntes es contenido navegable que el cliente decide cuando leer, no una
+accion que ejecutar. Van como MCP resources: `upv://materiales` y
+`upv://materiales/{codigo}`.
+
+Nunca se descarga el contenido de los ficheros, solo metadatos y URL. Una sola
+asignatura del usuario tiene 1159 recursos; el listado se trunca a 60 por seccion y
+lo declara en el propio texto.
 
 ### Sin evals automaticas en la v0
 
@@ -88,31 +123,34 @@ seria peso muerto.
 
 ---
 
+## Que valido la arquitectura
+
+Anadir PoliformaT entero -- entregas, materiales y anuncios -- **no obligo a tocar
+`tools/` ni una linea** para las tres tools que ya existian. `PoliformatSource`
+produce los mismos modelos que ya consumian. Era la apuesta de la v0 y salio bien.
+
 ## Roadmap
 
-### v0.1 — Calendario de examenes (bloqueado por datos)
+### v1.1 — Calendario de examenes (bloqueado por datos)
 
-Falta unicamente el enlace iCal de examenes desde el visor de horarios de la
-intranet. El codigo ya lo soporta: `IcsSource` acepta N calendarios, `_classify()`
-distingue examen de clase, y hay fixture y tests que lo cubren.
+Es el unico hueco declarado que queda. Los examenes tienen un calendario propio en
+algun sitio de la UPV, todavia por localizar. Dos vias posibles:
 
-Al conectarlo, `list_upcoming_deadlines` empieza a devolver datos y su
-`coverage_note` se reduce sola.
+1. Un segundo iCal desde el visor de horarios de la intranet. El codigo ya lo
+   soporta: `IcsSource` acepta N calendarios, `_classify()` distingue examen de
+   clase, y hay fixture y tests que lo cubren. Seria configuracion, no codigo.
+2. Alguna pagina o servicio de la ETSINF con el calendario oficial de examenes.
 
-### v1 — PoliformaT (Sakai)
+Al conectarlo, el aviso de cobertura desaparece solo, igual que desaparecio el de
+PoliformaT al integrarlo.
 
-La parte fragil, y el motivo de que la v0 haya validado antes la forma del servidor.
+### v1.2 — Mejoras sobre lo ya construido
 
-- **Autenticacion**: login UPV, credenciales siempre desde el llavero.
-- **Entregas**: herramienta "Tareas" -> modelos `Assignment` ya existentes.
-- **Materiales**: herramienta "Recursos" -> `Material`, expuestos como **MCP
-  resources**, no como tool. Un PDF de apuntes es contenido navegable que el cliente
-  decide cuando leer, no una accion que ejecutar.
-- **Buena ciudadania**: `RateLimiter` conservador (ya escrito, `<= 1 req/s`),
-  User-Agent identificable, acceso unicamente a datos de la propia cuenta, respeto a
-  robots.txt y cache agresiva. Sakai es infraestructura compartida de la universidad.
-- Solo debe tocarse `sources/`. Si hay que modificar `tools/`, la arquitectura
-  fallo y hay que revisar el cambio.
+- **Entregas pendientes vs entregadas**: la API trae `status` y `submissions`; hoy
+  no se usan. Permitiria responder "que me queda por entregar" y no solo "que vence".
+- **Refresco selectivo**: PoliformaT tarda ~1 peticion por asignatura para los
+  materiales. Cachear por asignatura con TTL propio evitaria rehacerlo entero.
+- **Filtrar por asignatura** en `get_schedule` y `list_upcoming_deadlines`.
 
 ### v2 — Reserva de salas
 
