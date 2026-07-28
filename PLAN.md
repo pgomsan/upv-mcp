@@ -95,6 +95,22 @@ pregunta habitual es sobre lo que queda por hacer. Incluir el pasado sin que lo 
 llena la respuesta de entregas cerradas y entierra lo relevante. La descripcion dice
 explicitamente que solo se use ante una pregunta sobre algo ya pasado.
 
+### El estado de entrega tiene tres valores, no dos
+
+Cada entrega dice `submitted`, `not_submitted` o **`unknown`**. El tercero no es un
+adorno: 6 de 82 tareas reales no traen registro de entrega, y las fechas limite que
+vienen del calendario en vez de la herramienta de Tareas tampoco lo tienen.
+
+Tratarlas como no entregadas seria inventar, y del peor modo posible: haciendo que
+el estudiante crea que le falta algo que ya hizo. Por eso `pending_only` deja fuera
+lo desconocido, y `meta.coverage_note` dice cuantas hay en ese estado.
+
+**Trampa de la API, verificada y no supuesta**: el campo `submitted` de Sakai vale
+`true` en las 76 tareas con submission, incluidas las que la propia interfaz muestra
+como "No ha empezado". Fiarse de su nombre habria dicho al estudiante que lo tiene
+todo entregado. El campo correcto es `userSubmission`, que casa exactamente con la
+fecha de entrega (38 y 38). Hay un test de regresion.
+
 ### Los materiales son resources, no una tool
 
 Un PDF de apuntes es contenido navegable que el cliente decide cuando leer, no una
@@ -146,8 +162,6 @@ PoliformaT al integrarlo.
 
 ### v1.2 — Mejoras sobre lo ya construido
 
-- **Entregas pendientes vs entregadas**: la API trae `status` y `submissions`; hoy
-  no se usan. Permitiria responder "que me queda por entregar" y no solo "que vence".
 - **Refresco selectivo**: PoliformaT tarda ~1 peticion por asignatura para los
   materiales. Cachear por asignatura con TTL propio evitaria rehacerlo entero.
 - **Filtrar por asignatura** en `get_schedule` y `list_upcoming_deadlines`.

@@ -39,7 +39,15 @@ CREATE TABLE IF NOT EXISTS assignments (
     building       TEXT,
     location_raw   TEXT,
     url            TEXT,
-    source         TEXT NOT NULL
+    source         TEXT NOT NULL,
+    -- migration:3  estado de entrega (solo lo sabe PoliformaT)
+    submission_status TEXT,
+    submitted_at      TEXT,
+    submitted_late    INTEGER,
+    graded            INTEGER,
+    grade             TEXT,
+    grade_max         TEXT,
+    feedback          TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_assignments_due ON assignments (due_utc);

@@ -26,10 +26,23 @@ from upv_mcp.models import (
     Location,
     Material,
     SourceName,
+    Submission,
+    SubmissionStatus,
 )
 
 #: Version de esquema que espera este codigo. Subirla obliga a anadir migracion.
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
+
+#: Migracion 3: estado de entrega de cada tarea.
+_MIGRACION_3 = """
+ALTER TABLE assignments ADD COLUMN submission_status TEXT;
+ALTER TABLE assignments ADD COLUMN submitted_at TEXT;
+ALTER TABLE assignments ADD COLUMN submitted_late INTEGER;
+ALTER TABLE assignments ADD COLUMN graded INTEGER;
+ALTER TABLE assignments ADD COLUMN grade TEXT;
+ALTER TABLE assignments ADD COLUMN grade_max TEXT;
+ALTER TABLE assignments ADD COLUMN feedback TEXT;
+"""
 
 #: DDL de la migracion 2. El fichero schema.sql lo trae tambien, para bases nuevas;
 #: aqui se repite lo minimo para poder aplicarlo sobre una base ya existente.
@@ -87,17 +100,29 @@ def migrate(conn: sqlite3.Connection) -> None:
     if current >= SCHEMA_VERSION:
         return
     if current < 1:
-        # Base nueva: schema.sql ya trae el esquema completo, incluida la v2.
+        # Base nueva: schema.sql ya trae el esquema completo y actualizado.
         conn.executescript(_load_schema())
-    elif current < 2:
-        # Base existente de la v0: solo faltan las tablas de PoliformaT.
-        conn.executescript(_MIGRACION_2)
+    else:
+        # Base existente: se aplican solo las migraciones que le falten.
+        if current < 2:
+            conn.executescript(_MIGRACION_2)
+        if current < 3:
+            conn.executescript(_MIGRACION_3)
     conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     conn.commit()
 
 
 def _iso_utc(value: datetime) -> str:
     return value.astimezone(UTC).isoformat()
+
+
+def _bool_a_int(valor: bool | None) -> int | None:
+    """SQLite no tiene booleanos, y None debe seguir siendo None (no 0)."""
+    return None if valor is None else int(valor)
+
+
+def _int_a_bool(valor: int | None) -> bool | None:
+    return None if valor is None else bool(valor)
 
 
 def _from_iso(value: str, tz: ZoneInfo) -> datetime:
@@ -197,8 +222,10 @@ class CacheRepository:
                 """
                 INSERT OR REPLACE INTO assignments (
                     uid, calendar, kind, title, course_code, course_name,
-                    course_acronym, due_utc, room, building, location_raw, url, source
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    course_acronym, due_utc, room, building, location_raw, url, source,
+                    submission_status, submitted_at, submitted_late, graded,
+                    grade, grade_max, feedback
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 [
                     (
@@ -215,6 +242,15 @@ class CacheRepository:
                         a.location.raw if a.location else None,
                         a.url,
                         a.source.value,
+                        a.submission.status.value if a.submission else None,
+                        _iso_utc(a.submission.submitted_at)
+                        if a.submission and a.submission.submitted_at
+                        else None,
+                        _bool_a_int(a.submission.late) if a.submission else None,
+                        int(a.submission.graded) if a.submission else None,
+                        a.submission.grade if a.submission else None,
+                        a.submission.grade_max if a.submission else None,
+                        a.submission.feedback if a.submission else None,
                     )
                     for a in assignments
                 ],
@@ -498,4 +534,21 @@ class CacheRepository:
             location=_location(row),
             url=row["url"],
             source=SourceName(row["source"]),
+            submission=self._row_to_submission(row),
+        )
+
+    def _row_to_submission(self, row: sqlite3.Row) -> Submission | None:
+        estado = row["submission_status"]
+        if not estado:
+            return None
+        return Submission(
+            status=SubmissionStatus(estado),
+            submitted_at=(
+                _from_iso(row["submitted_at"], self._tz) if row["submitted_at"] else None
+            ),
+            late=_int_a_bool(row["submitted_late"]),
+            graded=bool(row["graded"]),
+            grade=row["grade"],
+            grade_max=row["grade_max"],
+            feedback=row["feedback"],
         )

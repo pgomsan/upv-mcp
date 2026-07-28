@@ -82,6 +82,8 @@ Requiere `upv-mcp-config set poliformat`.
 | # | Pregunta | Tool esperada | Que verificar |
 |---|---|---|---|
 | 16 | "¿que entregas tengo pendientes?" | `list_upcoming_deadlines` | `days_back` **no** se usa: solo lo que queda. |
+| 16b | "¿que me queda por entregar del curso?" | `list_upcoming_deadlines` con `pending_only` | Solo lo no entregado. **Mal**: colar como pendiente algo de estado `unknown`. |
+| 16c | "¿me han corregido la practica 3?" | `list_upcoming_deadlines` | Debe leer `graded` y dar la nota con su escala ("8,30 sobre 10,00"), no la nota suelta. |
 | 17 | "¿que entregue en Vision por Computador?" | `list_upcoming_deadlines` con `days_back` | Aqui SI debe mirar atras. Es el caso que justifica el parametro. |
 | 18 | "¿ha dicho algo el profe de Robotica Movil?" | `list_announcements` | Trae autor y fecha. No confundir con deadlines. |
 | 19 | "¿donde estan los apuntes de Redes Industriales?" | **Resource**, no tool | Debe leer `upv://materiales/14541`, no llamar a ninguna tool. |

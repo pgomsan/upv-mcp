@@ -127,10 +127,11 @@ async def list_upcoming_deadlines(
     ctx: Context[AppContext],
     days_ahead: int = deadlines_tool.DEFAULT_DAYS_AHEAD,
     days_back: int = 0,
+    pending_only: bool = False,
 ) -> DeadlinesResult:
     app = ctx.request_context.lifespan_context
     return await deadlines_tool.list_upcoming_deadlines(
-        app.repo, days_ahead, days_back, limit=app.settings.max_results
+        app.repo, days_ahead, days_back, pending_only, limit=app.settings.max_results
     )
 
 

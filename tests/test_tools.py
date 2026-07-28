@@ -257,3 +257,85 @@ async def test_deadlines_valida_days_back(repo: AcademicRepository) -> None:
         await list_upcoming_deadlines(repo, 14, -1, limit=50)
     with pytest.raises(ValueError, match="days_back debe estar entre 0 y 365"):
         await list_upcoming_deadlines(repo, 14, 400, limit=50)
+
+
+# -- pending_only ----------------------------------------------------------------
+
+
+def _con_entregas(settings: Settings, cache: CacheRepository) -> AcademicRepository:
+    """Cache con una entrega hecha, una sin hacer y una de estado desconocido."""
+    from upv_mcp.models import (
+        Assignment,
+        Course,
+        EventKind,
+        SourceName,
+        Submission,
+        SubmissionStatus,
+    )
+
+    curso = Course(code="14541", name="Redes Industriales")
+    base = datetime(2026, 3, 1, tzinfo=MADRID)
+    cache.replace_calendar(
+        "poliformat",
+        [],
+        [
+            Assignment(
+                uid="hecha", kind=EventKind.ASSIGNMENT, title="Hecha", course=curso,
+                due=base, source=SourceName.POLIFORMAT,
+                submission=Submission(status=SubmissionStatus.SUBMITTED, graded=False),
+            ),
+            Assignment(
+                uid="falta", kind=EventKind.ASSIGNMENT, title="Falta", course=curso,
+                due=base, source=SourceName.POLIFORMAT,
+                submission=Submission(status=SubmissionStatus.NOT_SUBMITTED),
+            ),
+            Assignment(
+                uid="ni-idea", kind=EventKind.ASSIGNMENT, title="Sin dato", course=curso,
+                due=base, source=SourceName.POLIFORMAT,
+                submission=Submission(status=SubmissionStatus.UNKNOWN),
+            ),
+        ],
+    )
+    return _repo_en(settings, cache, datetime(2026, 2, 20, tzinfo=MADRID))
+
+
+async def test_pending_only_filtra_lo_ya_entregado(
+    settings: Settings, cache: CacheRepository
+) -> None:
+    repo = _con_entregas(settings, cache)
+    resultado = await list_upcoming_deadlines(repo, 30, 0, True, limit=50)
+
+    assert [d.uid for d in resultado.deadlines] == ["falta"]
+    assert resultado.pending_only is True
+
+
+async def test_pending_only_no_cuela_lo_desconocido(
+    settings: Settings, cache: CacheRepository
+) -> None:
+    """Decir "te falta esto" de algo que quiza esta hecho es el peor fallo posible."""
+    repo = _con_entregas(settings, cache)
+    resultado = await list_upcoming_deadlines(repo, 30, 0, True, limit=50)
+
+    assert "ni-idea" not in [d.uid for d in resultado.deadlines]
+
+
+async def test_sin_filtro_devuelve_todas_y_avisa_de_las_desconocidas(
+    settings: Settings, cache: CacheRepository
+) -> None:
+    repo = _con_entregas(settings, cache)
+    resultado = await list_upcoming_deadlines(repo, 30, limit=50)
+
+    assert len(resultado.deadlines) == 3
+    assert "no traen estado de entrega" in (resultado.meta.coverage_note or "")
+
+
+async def test_el_estado_sobrevive_a_la_cache(
+    settings: Settings, cache: CacheRepository
+) -> None:
+    """El estado se guarda y se recupera de SQLite sin perderse."""
+    repo = _con_entregas(settings, cache)
+    resultado = await list_upcoming_deadlines(repo, 30, limit=50)
+    hecha = next(d for d in resultado.deadlines if d.uid == "hecha")
+
+    assert hecha.submission is not None
+    assert hecha.submission.status.value == "submitted"

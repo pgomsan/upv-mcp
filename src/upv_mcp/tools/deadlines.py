@@ -10,43 +10,45 @@ estudiante se puede creer.
 
 from __future__ import annotations
 
-from upv_mcp.models import DeadlinesResult
+from upv_mcp.models import DeadlinesResult, SubmissionStatus
 from upv_mcp.repository import AcademicRepository
 from upv_mcp.tools.common import build_meta, horizon_bounds
 
 DESCRIPTION = """\
-Devuelve las FECHAS LIMITE proximas (examenes y entregas) dentro de los siguientes \
-N dias, ordenadas de la mas cercana a la mas lejana.
+Devuelve las ENTREGAS de PoliformaT con fecha limite proxima, de la mas cercana a \
+la mas lejana, con su estado de entrega y su nota si ya esta corregida.
 
-USALA para:
-- "que examenes tengo pronto"
-- "tengo alguna entrega esta semana"
-- "que se me viene encima"
-- "cuando es mi proximo examen"
+USALA para: "tengo alguna entrega esta semana", "que me queda por entregar", \
+"que se me viene encima", "me han puesto ya la nota de la practica 2".
 
 NO LA USES:
-- Para clases normales -> usa get_schedule (si hay fechas) o get_next_class (si es \
-lo inmediato). Una clase no es una fecha limite y esta tool no las devuelve.
-- Si el usuario da un rango con inicio y fin concretos -> usa get_schedule.
+- Para clases -> usa get_schedule (con fechas) o get_next_class (lo inmediato). \
+Una clase no es una fecha limite y esta tool no las devuelve.
+- Para avisos de profesores -> usa list_announcements.
+
+CAMPO `submission` de cada entrega:
+- "submitted": entregada (trae submitted_at y late).
+- "not_submitted": consta que NO esta entregada.
+- "unknown": PoliformaT no da el dato. NO es lo mismo que no entregada: di que no \
+lo sabes, nunca que le falta entregarla.
+- Si graded es true, trae grade y grade_max, con coma decimal ("8,30" de "10,00"), \
+y feedback con el comentario del profesor.
 
 PARAMETROS:
-- days_ahead: cuantos dias hacia adelante mirar. Por defecto 14.
-- days_back: cuantos dias hacia ATRAS incluir. Por defecto 0, y ese es el caso \
-normal: casi siempre se pregunta por lo que queda por hacer. Usalo solo si el \
-usuario pregunta explicitamente por algo YA PASADO ("que entregue en Vision por \
-Computador", "cuando era la practica 3", "que entregas hubo en mayo"). Si dudas, \
-dejalo en 0: incluir el pasado sin que lo pidan llena la respuesta de entregas \
-cerradas y entierra lo que de verdad importa.
+- days_ahead: dias hacia adelante. Por defecto 14.
+- days_back: dias hacia ATRAS. Por defecto 0, que es el caso normal. Usalo solo si \
+preguntan por algo YA PASADO ("que entregue en Vision por Computador"). Incluir el \
+pasado sin que lo pidan entierra lo que importa.
+- pending_only: solo lo que consta como no entregado. Para "que tengo sin hacer". \
+Lo de estado unknown queda fuera de este filtro a proposito.
 
-EXAMENES: este servidor NO tiene acceso al calendario de examenes de la UPV. En \
-PoliformaT algunos examenes aparecen como tarea y otros no, y hay tareas tituladas \
-"Examen" que no lo son, asi que NO se clasifican: todo lo que devuelve esta tool \
-son entregas. Si el usuario pregunta por examenes, di que no puedes verlos y que \
-lo consulte en la web de su titulacion. NO deduzcas que no tiene examenes.
+EXAMENES: NO tienes acceso al calendario de examenes de la UPV. En PoliformaT hay \
+tareas tituladas "Examen" que no lo son, y examenes que no son tarea, asi que no se \
+clasifican. Si preguntan por examenes, di que no puedes verlos; NO deduzcas que no \
+tiene ninguno.
 
-Consulta siempre meta.coverage_note antes de responder y traslada al usuario \
-cualquier limitacion que indique. Una lista vacia con days_back=0 significa que no \
-hay entregas proximas, lo cual es normal en vacaciones o entre cursos.\
+Lee meta.coverage_note antes de responder. Una lista vacia con days_back=0 significa \
+que no hay entregas proximas, normal en vacaciones o entre cursos.\
 """
 
 #: Horizonte por defecto. Dos semanas cubre la pregunta tipica sin inundar contexto.
@@ -61,6 +63,7 @@ async def list_upcoming_deadlines(
     repo: AcademicRepository,
     days_ahead: int = DEFAULT_DAYS_AHEAD,
     days_back: int = 0,
+    pending_only: bool = False,
     *,
     limit: int,
 ) -> DeadlinesResult:
@@ -73,12 +76,35 @@ async def list_upcoming_deadlines(
     await repo.ensure_fresh()
     start, end = horizon_bounds(repo, days_ahead, days_back=days_back)
 
-    total = repo.cache.count_assignments_between(start, end)
-    deadlines = repo.cache.assignments_between(start, end, limit=limit)
+    if pending_only:
+        # `is_pending` solo es cierto para lo que consta explicitamente como NO
+        # entregado: lo desconocido no se cuela como pendiente.
+        todas = repo.cache.assignments_between(start, end)
+        filtradas = [a for a in todas if a.is_pending]
+        total = len(filtradas)
+        deadlines = filtradas[:limit]
+    else:
+        total = repo.cache.count_assignments_between(start, end)
+        deadlines = repo.cache.assignments_between(start, end, limit=limit)
+
+    desconocidas = sum(
+        1
+        for a in deadlines
+        if a.submission is None or a.submission.status is SubmissionStatus.UNKNOWN
+    )
+    nota = (
+        f"{desconocidas} de las entregas listadas no traen estado de entrega: no se "
+        "sabe si estan hechas. No las des por pendientes ni por entregadas."
+        if desconocidas
+        else None
+    )
 
     return DeadlinesResult(
         horizon_days=days_ahead,
         days_back=days_back,
+        pending_only=pending_only,
         deadlines=deadlines,
-        meta=build_meta(repo, total_matching=total, returned=len(deadlines)),
+        meta=build_meta(
+            repo, total_matching=total, returned=len(deadlines), extra_note=nota
+        ),
     )

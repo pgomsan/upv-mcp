@@ -30,6 +30,41 @@ class SourceName(StrEnum):
     POLIFORMAT = "poliformat"
 
 
+class SubmissionStatus(StrEnum):
+    """Estado de entrega de una tarea.
+
+    `UNKNOWN` no es un adorno: hay tareas que no traen registro de entrega (6 de 82
+    en datos reales). Tratarlas como no entregadas seria inventar, y podria hacer
+    que el estudiante creyera que le falta algo que ya hizo.
+    """
+
+    SUBMITTED = "submitted"
+    NOT_SUBMITTED = "not_submitted"
+    UNKNOWN = "unknown"
+
+
+class Submission(BaseModel):
+    """Lo que el estudiante ha entregado en una tarea, y su correccion."""
+
+    status: SubmissionStatus
+    submitted_at: datetime | None = Field(
+        default=None, description="Cuando se entrego, si consta."
+    )
+    late: bool | None = Field(default=None, description="True si se entrego fuera de plazo.")
+    graded: bool = Field(default=False, description="True si el profesor ya la ha corregido.")
+    grade: str | None = Field(
+        default=None,
+        description="Nota tal cual la da PoliformaT, con coma decimal (p.ej. '8,30').",
+    )
+    grade_max: str | None = Field(
+        default=None,
+        description="Nota maxima de la escala. Sin esto, un '8,30' no significa nada.",
+    )
+    feedback: str | None = Field(
+        default=None, description="Comentario del profesor, sin HTML y recortado."
+    )
+
+
 class Course(BaseModel):
     """Asignatura. `code` es el codigo UPV de 5 digitos (p.ej. 14530)."""
 
@@ -94,6 +129,18 @@ class Assignment(BaseModel):
     location: Location | None = None
     url: str | None = None
     source: SourceName
+    submission: Submission | None = Field(
+        default=None,
+        description="Estado de entrega. Null si la fuente no lo sabe (p.ej. el .ics).",
+    )
+
+    @property
+    def is_pending(self) -> bool:
+        """Solo es 'pendiente' lo que consta explicitamente como no entregado."""
+        return (
+            self.submission is not None
+            and self.submission.status is SubmissionStatus.NOT_SUBMITTED
+        )
 
 
 class Material(BaseModel):
@@ -192,6 +239,9 @@ class DeadlinesResult(BaseModel):
     horizon_days: int
     days_back: int = Field(
         default=0, description="Dias hacia atras incluidos. 0 = solo lo que esta por venir."
+    )
+    pending_only: bool = Field(
+        default=False, description="True si se filtro a lo que consta como no entregado."
     )
     deadlines: list[Assignment]
     meta: ResultMeta

@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from upv_mcp.config import Settings
-from upv_mcp.models import EventKind, SourceName
+from upv_mcp.models import EventKind, SourceName, SubmissionStatus
 from upv_mcp.sources.poliformat import PoliformatSource, parse_site_id
 
 MADRID = ZoneInfo("Europe/Madrid")
@@ -211,3 +211,124 @@ def test_filtra_la_basura_de_proyectos_subidos_enteros() -> None:
 
     assert not _es_ruido("Tema 1.pdf", f"{base}/Tema 1.pdf")
     assert not _es_ruido("practica.ipynb", f"{base}/cuadernos/practica.ipynb")
+
+
+# -- Estado de entrega -----------------------------------------------------------
+
+_CON_ENTREGAS: dict[str, Any] = {
+    "assignment_collection": [
+        {
+            "id": "hecha",
+            "title": "Practica entregada",
+            "context": "GRA_14541_2025",
+            "dueTimeString": "2026-03-24T10:00:00Z",
+            "gradeScaleMaxPoints": "10,00",
+            "submissions": [
+                {
+                    "submitted": True,
+                    "userSubmission": True,
+                    "dateSubmittedEpochSeconds": 1774387603,
+                    "late": False,
+                    "graded": True,
+                    "grade": "8,30",
+                    "feedbackComment": "<p>Buen trabajo, revisa el <b>apartado 3</b>.</p>",
+                }
+            ],
+        },
+        {
+            "id": "sin-hacer",
+            "title": "Practica sin entregar",
+            "context": "GRA_14541_2025",
+            "dueTimeString": "2026-04-01T10:00:00Z",
+            "submissions": [
+                {
+                    # `submitted` vale True hasta en las que no se han entregado:
+                    # es el campo trampa de esta API.
+                    "submitted": True,
+                    "userSubmission": False,
+                    "dateSubmittedEpochSeconds": None,
+                    "graded": False,
+                    "grade": "",
+                }
+            ],
+        },
+        {
+            "id": "sin-registro",
+            "title": "Tarea sin objeto de entrega",
+            "context": "GRA_14541_2025",
+            "dueTimeString": "2026-04-08T10:00:00Z",
+            "submissions": None,
+        },
+    ]
+}
+
+
+@pytest.fixture
+def source_entregas(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> PoliformatSource:
+    class _Falso(_SakaiFalso):
+        async def get_json(self, path: str, **params: Any) -> Any:  # noqa: ANN401
+            if "assignment" in path:
+                return _CON_ENTREGAS
+            if "calendar" in path:
+                return {"calendar_collection": []}
+            return _SITIOS
+
+    monkeypatch.setattr("upv_mcp.sources.poliformat.SakaiClient", _Falso)
+    settings = Settings(schedule_ics_file=tmp_path / "h.ics", data_dir=tmp_path)
+    return PoliformatSource(settings)
+
+
+async def test_detecta_entrega_hecha_con_nota(source_entregas: PoliformatSource) -> None:
+    payload = await source_entregas.fetch()
+    hecha = next(a for a in payload.assignments if a.uid.endswith("hecha"))
+
+    assert hecha.submission is not None
+    assert hecha.submission.status is SubmissionStatus.SUBMITTED
+    assert hecha.submission.submitted_at is not None
+    assert hecha.submission.late is False
+    assert hecha.submission.graded is True
+    assert hecha.submission.grade == "8,30"
+    assert hecha.submission.grade_max == "10,00", "una nota sin su escala no informa"
+    assert hecha.submission.feedback == "Buen trabajo, revisa el apartado 3."
+    assert hecha.is_pending is False
+
+
+async def test_detecta_entrega_sin_hacer(source_entregas: PoliformatSource) -> None:
+    payload = await source_entregas.fetch()
+    falta = next(a for a in payload.assignments if a.uid.endswith("sin-hacer"))
+
+    assert falta.submission is not None
+    assert falta.submission.status is SubmissionStatus.NOT_SUBMITTED
+    assert falta.submission.grade is None
+    assert falta.is_pending is True
+
+
+async def test_sin_registro_es_desconocido_no_pendiente(
+    source_entregas: PoliformatSource,
+) -> None:
+    """6 de 82 tareas reales no traen registro de entrega.
+
+    Decirle a un estudiante que le falta entregar algo que quiza ya hizo es peor
+    que reconocer que no se sabe.
+    """
+    payload = await source_entregas.fetch()
+    desconocida = next(a for a in payload.assignments if a.uid.endswith("sin-registro"))
+
+    assert desconocida.submission is not None
+    assert desconocida.submission.status is SubmissionStatus.UNKNOWN
+    assert desconocida.is_pending is False, "unknown NUNCA cuenta como pendiente"
+
+
+async def test_ignora_el_campo_submitted_que_miente(
+    source_entregas: PoliformatSource,
+) -> None:
+    """`submitted` vale True en las 76 tareas reales, incluidas las no entregadas.
+
+    Fiarse de el habria dicho al estudiante que lo tiene todo hecho. El campo
+    fiable es `userSubmission`. Verificado contra la API real.
+    """
+    payload = await source_entregas.fetch()
+    falta = next(a for a in payload.assignments if a.uid.endswith("sin-hacer"))
+
+    assert falta.submission is not None
+    assert falta.submission.status is SubmissionStatus.NOT_SUBMITTED

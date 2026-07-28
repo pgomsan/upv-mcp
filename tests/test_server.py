@@ -92,8 +92,15 @@ def test_la_tool_de_deadlines_no_promete_examenes() -> None:
     """
     texto = deadlines_tool.DESCRIPTION
     assert "no puedes verlos" in texto
-    assert "NO deduzcas que no tiene examenes" in texto
+    assert "NO deduzcas que no tiene ninguno" in texto
     assert "coverage_note" in texto
+
+
+def test_la_tool_de_deadlines_distingue_desconocido_de_no_entregado() -> None:
+    """"No lo se" y "te falta entregarlo" son cosas muy distintas para un estudiante."""
+    texto = deadlines_tool.DESCRIPTION
+    assert "NO es lo mismo que no entregada" in texto
+    assert "nunca que le falta entregarla" in texto
 
 
 def test_los_materiales_no_son_una_tool() -> None:

@@ -19,7 +19,7 @@ todo ocurre en tu ordenador, en solo lectura y solo sobre tu cuenta.
 |---|---|
 | `get_schedule(start_date, end_date)` | Clases en un rango de fechas |
 | `get_next_class()` | La siguiente sesion desde ahora, con aula y hora |
-| `list_upcoming_deadlines(days_ahead, days_back)` | Entregas de PoliformaT ([ver limitacion](#limitaciones)) |
+| `list_upcoming_deadlines(days_ahead, days_back, pending_only)` | Entregas, con estado y nota ([ver limitacion](#limitaciones)) |
 | `list_announcements(days_back)` | Avisos publicados por los profesores |
 
 ## Resources
@@ -144,6 +144,12 @@ uv run upv-mcp-config set exams
 has cursado; se sincronizan unicamente las del ultimo curso, para no llenar las
 respuestas de ruido. Para consultar entregas ya pasadas, `list_upcoming_deadlines`
 acepta `days_back`.
+
+**El estado de entrega puede ser desconocido.** Cada entrega dice si esta
+`submitted`, `not_submitted` o `unknown`, y si ya esta corregida trae la nota y el
+comentario del profesor. Las que llegan del calendario (y no de la herramienta de
+Tareas) no tienen estado. El filtro `pending_only` deja fuera lo desconocido a
+proposito: decirte que te falta algo que quiza ya entregaste es peor que callarse.
 
 ## Desarrollo
 

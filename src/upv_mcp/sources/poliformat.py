@@ -38,6 +38,8 @@ from upv_mcp.models import (
     EventKind,
     Material,
     SourceName,
+    Submission,
+    SubmissionStatus,
 )
 from upv_mcp.sources.base import SourceError, SourcePayload
 from upv_mcp.sources.sakai import SakaiClient
@@ -46,6 +48,7 @@ from upv_mcp.sources.sakai import SakaiClient
 _SITE_ID: Final = re.compile(r"^(?P<prefijo>[A-Z]+)_(?P<codigo>\d{4,6})_(?P<curso>\d{4})$")
 
 _TAGS: Final = re.compile(r"<[^>]+>")
+_ESPACIO_ANTES_PUNTUACION: Final = re.compile(r"\s+([.,;:!?)\]])")
 
 
 def parse_site_id(site_id: str) -> tuple[str, int] | None:
@@ -57,11 +60,17 @@ def parse_site_id(site_id: str) -> tuple[str, int] | None:
 
 
 def _limpiar(texto: str | None) -> str | None:
-    """Sakai devuelve HTML con entidades en titulos y descripciones."""
+    """Sakai devuelve HTML con entidades en titulos y descripciones.
+
+    Las etiquetas se sustituyen por un espacio para no pegar palabras
+    ("fin<br>Otra"), y despues se quita el espacio sobrante antes de un signo de
+    puntuacion: si no, "revisa el <b>apartado 3</b>." acaba como "apartado 3 .".
+    """
     if not texto:
         return None
     limpio = html.unescape(_TAGS.sub(" ", texto))
     limpio = " ".join(limpio.split())
+    limpio = _ESPACIO_ANTES_PUNTUACION.sub(r"\1", limpio)
     return limpio or None
 
 
@@ -81,6 +90,13 @@ _RUIDO: Final = re.compile(
     r"(^|/)(\.git|\.idea|\.vscode|__pycache__|__MACOSX|\.ipynb_checkpoints)(/|$)",
     re.IGNORECASE,
 )
+
+
+def _recortar(texto: str | None, tope: int) -> str | None:
+    """Recorta sin dejar la frase colgando en mitad de una palabra."""
+    if not texto or len(texto) <= tope:
+        return texto
+    return texto[:tope].rsplit(" ", 1)[0] + "..."
 
 
 def _es_ruido(titulo: str, url: str) -> bool:
@@ -153,6 +169,41 @@ class PoliformatSource:
 
     # -- Mapeo --------------------------------------------------------------------
 
+    def _submission(self, tarea: dict[str, Any]) -> Submission:
+        """Extrae el estado de entrega del alumno.
+
+        `/direct/assignment/my.json` devuelve una sola submission por tarea, la del
+        usuario autenticado. Cuando no hay ninguna (6 de 82 en datos reales) el
+        estado es UNKNOWN, nunca NOT_SUBMITTED: decir "te falta entregar" algo que
+        quiza ya esta hecho es peor que reconocer que no se sabe.
+        """
+        entregas = tarea.get("submissions") or []
+        if not entregas or not isinstance(entregas[0], dict):
+            return Submission(status=SubmissionStatus.UNKNOWN)
+
+        datos = entregas[0]
+        # OJO: el campo `submitted` NO sirve. Vale True en las 76 tareas con
+        # submission, incluidas las que Sakai muestra como "No ha empezado".
+        # El campo bueno es `userSubmission`, que casa exactamente con la fecha de
+        # entrega (38 y 38 en datos reales). Verificado contra la API, no supuesto.
+        cuando = datos.get("dateSubmittedEpochSeconds")
+        entregado = bool(datos.get("userSubmission")) or bool(cuando)
+
+        nota = str(datos.get("grade") or "").strip() or None
+        return Submission(
+            status=SubmissionStatus.SUBMITTED if entregado else SubmissionStatus.NOT_SUBMITTED,
+            submitted_at=(
+                datetime.fromtimestamp(float(cuando), tz=self._tz)
+                if isinstance(cuando, int | float)
+                else None
+            ),
+            late=datos.get("late") if isinstance(datos.get("late"), bool) else None,
+            graded=bool(datos.get("graded")),
+            grade=nota,
+            grade_max=str(tarea.get("gradeScaleMaxPoints") or "").strip() or None,
+            feedback=_recortar(_limpiar(datos.get("feedbackComment")), 600),
+        )
+
     def _entrega_de_tarea(self, tarea: dict[str, Any], curso: Course) -> Assignment | None:
         vence = _parse_instante(tarea.get("dueTimeString"), self._tz) or _parse_instante(
             tarea.get("closeTimeString"), self._tz
@@ -170,6 +221,7 @@ class PoliformatSource:
             due=vence,
             url=tarea.get("entityURL"),
             source=SourceName.POLIFORMAT,
+            submission=self._submission(tarea),
         )
 
     def _entrega_de_evento(self, evento: dict[str, Any], curso: Course) -> Assignment | None:
