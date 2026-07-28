@@ -152,7 +152,7 @@ async def test_deadlines_vacio_pero_avisando(repo: AcademicRepository) -> None:
 
     assert resultado.deadlines == []
     nota = resultado.meta.coverage_note or ""
-    assert "NO incluye examenes" in nota
+    assert "NO tienes acceso al calendario de examenes" in nota
     assert "PoliformaT" in nota
 
 
@@ -171,7 +171,9 @@ async def test_deadlines_devuelve_examenes_si_hay_calendario(
 
         assert len(resultado.deadlines) == 2
         assert resultado.deadlines[0].due < resultado.deadlines[1].due
-        assert "NO incluye examenes" not in (resultado.meta.coverage_note or "")
+        assert "NO tienes acceso al calendario de examenes" not in (
+            resultado.meta.coverage_note or ""
+        )
 
 
 async def test_deadlines_valida_el_horizonte(repo: AcademicRepository) -> None:

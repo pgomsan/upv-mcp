@@ -267,6 +267,29 @@ class CacheRepository:
             ).fetchone()[0]
         )
 
+    def courses_by_code(self) -> dict[str, Course]:
+        """Asignaturas conocidas por el horario, indexadas por codigo UPV.
+
+        Permite dar a las entregas de PoliformaT el nombre oficial de la asignatura
+        en vez del titulo del sitio de Sakai ("PR3 25.26").
+        """
+        filas = self._conn.execute(
+            """
+            SELECT course_code, course_name, course_acronym
+            FROM sessions
+            WHERE course_code <> ''
+            GROUP BY course_code
+            """
+        )
+        return {
+            row["course_code"]: Course(
+                code=row["course_code"],
+                name=row["course_name"],
+                acronym=row["course_acronym"],
+            )
+            for row in filas
+        }
+
     def is_empty(self) -> bool:
         return int(self._conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]) == 0
 

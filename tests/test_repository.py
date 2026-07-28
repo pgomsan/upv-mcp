@@ -81,7 +81,7 @@ async def test_avisa_de_que_no_hay_examenes_ni_entregas(
     repo = AcademicRepository(settings, cache)
     nota = repo.coverage_note() or ""
 
-    assert "NO incluye examenes" in nota
+    assert "NO tienes acceso al calendario de examenes" in nota
     assert "PoliformaT" in nota
 
 
@@ -96,7 +96,7 @@ async def test_con_calendario_de_examenes_el_aviso_se_reduce(
     repo = AcademicRepository(settings, cache)
     nota = repo.coverage_note() or ""
 
-    assert "NO incluye examenes" not in nota
+    assert "NO tienes acceso al calendario de examenes" not in nota
     assert "PoliformaT" in nota
 
 
