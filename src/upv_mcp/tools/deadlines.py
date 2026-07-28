@@ -107,7 +107,5 @@ async def list_upcoming_deadlines(
         days_back=days_back,
         pending_only=pending_only,
         deadlines=deadlines,
-        meta=build_meta(
-            repo, total_matching=total, returned=len(deadlines), extra_note=nota
-        ),
+        meta=build_meta(repo, total_matching=total, returned=len(deadlines), extra_note=nota),
     )

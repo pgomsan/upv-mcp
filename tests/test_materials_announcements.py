@@ -194,9 +194,7 @@ async def test_anuncios_valida_la_ventana(repo: AcademicRepository) -> None:
         await list_announcements(repo, 400, limit=50)
 
 
-async def test_el_listado_se_trunca_y_lo_dice(
-    tmp_path: Path, horario_ics: Path
-) -> None:
+async def test_el_listado_se_trunca_y_lo_dice(tmp_path: Path, horario_ics: Path) -> None:
     """Una asignatura real llega a 1159 recursos: volcarlos seria inaceptable."""
     settings = Settings(schedule_ics_file=horario_ics, data_dir=tmp_path / "muchos")
     with CacheRepository(settings.db_path) as cache:

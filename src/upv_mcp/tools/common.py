@@ -13,9 +13,7 @@ from upv_mcp.models import ResultMeta
 from upv_mcp.repository import AcademicRepository
 
 
-def day_bounds(
-    repo: AcademicRepository, start: date, end: date
-) -> tuple[datetime, datetime]:
+def day_bounds(repo: AcademicRepository, start: date, end: date) -> tuple[datetime, datetime]:
     """Convierte un rango de fechas inclusivo en un rango de instantes locales.
 
     El dia final se incluye entero: pedir 12/09 a 12/09 debe devolver las clases de

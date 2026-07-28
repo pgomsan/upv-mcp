@@ -1,5 +1,7 @@
 # upv-mcp
 
+[![CI](https://github.com/pgomsan/upv-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/pgomsan/upv-mcp/actions/workflows/ci.yml)
+
 Servidor [MCP](https://modelcontextprotocol.io) local que expone tu calendario
 academico de la **UPV** a cualquier cliente MCP: Claude Desktop, Claude Code o
 Cursor. Preguntale por tu horario en lenguaje natural y responde con tus datos

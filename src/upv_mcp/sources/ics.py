@@ -202,8 +202,9 @@ class IcsSource:
             retry_after = response.headers.get("Retry-After")
             raise RetryableError(
                 f"El servidor respondio {response.status_code}",
-                retry_after_seconds=float(retry_after) if retry_after and
-                retry_after.isdigit() else None,
+                retry_after_seconds=float(retry_after)
+                if retry_after and retry_after.isdigit()
+                else None,
             )
         if response.status_code >= 400:
             # 401/403/404 no se arreglan reintentando: casi siempre es el token.

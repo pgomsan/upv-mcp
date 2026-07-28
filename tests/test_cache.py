@@ -98,9 +98,7 @@ def test_limit_trunca_pero_el_contador_no(
     assert cache.count_sessions_between(inicio, fin) == len(payload.sessions)
 
 
-def test_next_session_after(
-    cache: CacheRepository, horario_ics: Path, settings: Settings
-) -> None:
+def test_next_session_after(cache: CacheRepository, horario_ics: Path, settings: Settings) -> None:
     payload = IcsSource(settings).parse(horario_ics.read_text(encoding="utf-8"), "schedule")
     cache.replace_calendar("schedule", payload.sessions)
 

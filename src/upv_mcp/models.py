@@ -47,9 +47,7 @@ class Submission(BaseModel):
     """Lo que el estudiante ha entregado en una tarea, y su correccion."""
 
     status: SubmissionStatus
-    submitted_at: datetime | None = Field(
-        default=None, description="Cuando se entrego, si consta."
-    )
+    submitted_at: datetime | None = Field(default=None, description="Cuando se entrego, si consta.")
     late: bool | None = Field(default=None, description="True si se entrego fuera de plazo.")
     graded: bool = Field(default=False, description="True si el profesor ya la ha corregido.")
     grade: str | None = Field(
@@ -149,8 +147,7 @@ class Assignment(BaseModel):
     def is_pending(self) -> bool:
         """Solo es 'pendiente' lo que consta explicitamente como no entregado."""
         return (
-            self.submission is not None
-            and self.submission.status is SubmissionStatus.NOT_SUBMITTED
+            self.submission is not None and self.submission.status is SubmissionStatus.NOT_SUBMITTED
         )
 
 

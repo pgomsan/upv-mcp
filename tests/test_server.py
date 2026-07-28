@@ -71,9 +71,7 @@ async def test_las_tools_declaran_salida_estructurada() -> None:
         (announcements_tool.DESCRIPTION, ["get_schedule", "list_upcoming_deadlines"]),
     ],
 )
-def test_cada_descripcion_desambigua_frente_a_las_otras(
-    description: str, otras: list[str]
-) -> None:
+def test_cada_descripcion_desambigua_frente_a_las_otras(description: str, otras: list[str]) -> None:
     """La descripcion es lo que decide si el modelo elige bien.
 
     Cada una debe decir explicitamente cuando NO usarla y redirigir por nombre a
@@ -97,7 +95,7 @@ def test_la_tool_de_deadlines_no_promete_examenes() -> None:
 
 
 def test_la_tool_de_deadlines_distingue_desconocido_de_no_entregado() -> None:
-    """"No lo se" y "te falta entregarlo" son cosas muy distintas para un estudiante."""
+    """ "No lo se" y "te falta entregarlo" son cosas muy distintas para un estudiante."""
     texto = deadlines_tool.DESCRIPTION
     assert "NO es lo mismo que no entregada" in texto
     assert "nunca que le falta entregarla" in texto

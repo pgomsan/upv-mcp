@@ -64,9 +64,7 @@ async def test_login_correcto_envia_los_tokens() -> None:
         for par in cuerpo.split("&"):
             k, _, v = par.partition("=")
             enviados[k] = v
-        return httpx2.Response(
-            200, text=_EXITO, request=request
-        )
+        return httpx2.Response(200, text=_EXITO, request=request)
 
     async with _cliente(handler) as client:
         await cas.authenticate(

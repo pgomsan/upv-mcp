@@ -16,9 +16,7 @@ def _parse(path: Path, settings: Settings, name: str = "schedule") -> list[Class
     return IcsSource(settings).parse(path.read_text(encoding="utf-8"), name).sessions
 
 
-def test_extrae_asignatura_del_html_de_description(
-    horario_ics: Path, settings: Settings
-) -> None:
+def test_extrae_asignatura_del_html_de_description(horario_ics: Path, settings: Settings) -> None:
     """El nombre NO esta en SUMMARY (son siglas), sino en el <b> del DESCRIPTION."""
     sessions = _parse(horario_ics, settings)
     est = next(s for s in sessions if s.course.acronym == "EST")
@@ -34,9 +32,7 @@ def test_convierte_utc_a_hora_local_de_valencia(horario_ics: Path, settings: Set
     cambio de hora, asi que basta convertir sin inventar correcciones.
     """
     sessions = _parse(horario_ics, settings)
-    est = sorted(
-        (s for s in sessions if s.course.acronym == "EST"), key=lambda s: s.start
-    )
+    est = sorted((s for s in sessions if s.course.acronym == "EST"), key=lambda s: s.start)
     verano = next(s for s in est if s.start.month == 9)
     invierno = next(s for s in est if s.start.month == 11)
 
@@ -99,9 +95,7 @@ def test_horario_no_contiene_examenes(horario_ics: Path, settings: Settings) -> 
 def test_calendario_de_examenes_se_clasifica_como_examen(
     examenes_ics: Path, settings: Settings
 ) -> None:
-    payload = IcsSource(settings).parse(
-        examenes_ics.read_text(encoding="utf-8"), "exams"
-    )
+    payload = IcsSource(settings).parse(examenes_ics.read_text(encoding="utf-8"), "exams")
     assert all(s.kind is EventKind.EXAM for s in payload.sessions)
     assert len(payload.assignments) == 2
     assert payload.assignments[0].title.startswith("Examen de")

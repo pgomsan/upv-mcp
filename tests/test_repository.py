@@ -102,9 +102,7 @@ async def test_con_calendario_de_examenes_el_aviso_se_reduce(
 
 async def test_caducidad_dispara_refresco(settings: Settings, cache: CacheRepository) -> None:
     repo = AcademicRepository(settings, cache)
-    cache.replace_calendar(
-        "schedule", [], fetched_at=datetime.now(UTC) - timedelta(days=1)
-    )
+    cache.replace_calendar("schedule", [], fetched_at=datetime.now(UTC) - timedelta(days=1))
 
     await repo.ensure_fresh()
 

@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Instalar dependencias
+        run: uv sync --frozen
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Formato
+        run: uv run ruff format --check .
+
+      # Los tests no tocan el llavero: Settings cae a variables de entorno, asi que
+      # el runner no necesita ningun secreto ni acceso a la UPV.
+      - name: Tipos (mypy --strict)
+        run: uv run mypy
+
+      - name: Tests
+        run: uv run pytest -q
+
+      - name: El servidor arranca y expone sus tools por stdio
+        env:
+          UPV_MCP_SCHEDULE_ICS_FILE: tests/fixtures/horario_upv.ics
+        # El `sleep` mantiene stdin abierto: sin el, el servidor termina en cuanto se
+        # cierra la entrada y no llega a responder al tools/list.
+        run: |
+          ( printf '%s\n' \
+              '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
+              '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+              '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'; \
+            sleep 10 ) \
+          | timeout 60 uv run upv-mcp > /tmp/salida.jsonl
+          grep -q '"get_next_class"' /tmp/salida.jsonl
+          grep -q '"list_upcoming_deadlines"' /tmp/salida.jsonl
+          echo "El servidor responde initialize y tools/list."

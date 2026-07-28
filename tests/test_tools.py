@@ -34,9 +34,7 @@ def repo(settings: Settings, cache: CacheRepository) -> AcademicRepository:
     return AcademicRepository(settings, cache)
 
 
-def _repo_en(
-    settings: Settings, cache: CacheRepository, momento: datetime
-) -> AcademicRepository:
+def _repo_en(settings: Settings, cache: CacheRepository, momento: datetime) -> AcademicRepository:
     return _RepoEnFecha(settings, cache, momento=momento)
 
 
@@ -126,9 +124,7 @@ async def test_next_class_sin_clases_futuras_devuelve_null(
     assert "No queda ninguna clase" in (resultado.meta.coverage_note or "")
 
 
-async def test_next_class_trae_aula_y_docente(
-    settings: Settings, cache: CacheRepository
-) -> None:
+async def test_next_class_trae_aula_y_docente(settings: Settings, cache: CacheRepository) -> None:
     """La pregunta tipica es 'donde tengo que ir': el aula es obligatoria."""
     momento = datetime(2024, 9, 12, 8, 0, tzinfo=MADRID)
     resultado = await get_next_class(_repo_en(settings, cache, momento))
@@ -280,18 +276,30 @@ def _con_entregas(settings: Settings, cache: CacheRepository) -> AcademicReposit
         [],
         [
             Assignment(
-                uid="hecha", kind=EventKind.ASSIGNMENT, title="Hecha", course=curso,
-                due=base, source=SourceName.POLIFORMAT,
+                uid="hecha",
+                kind=EventKind.ASSIGNMENT,
+                title="Hecha",
+                course=curso,
+                due=base,
+                source=SourceName.POLIFORMAT,
                 submission=Submission(status=SubmissionStatus.SUBMITTED, graded=False),
             ),
             Assignment(
-                uid="falta", kind=EventKind.ASSIGNMENT, title="Falta", course=curso,
-                due=base, source=SourceName.POLIFORMAT,
+                uid="falta",
+                kind=EventKind.ASSIGNMENT,
+                title="Falta",
+                course=curso,
+                due=base,
+                source=SourceName.POLIFORMAT,
                 submission=Submission(status=SubmissionStatus.NOT_SUBMITTED),
             ),
             Assignment(
-                uid="ni-idea", kind=EventKind.ASSIGNMENT, title="Sin dato", course=curso,
-                due=base, source=SourceName.POLIFORMAT,
+                uid="ni-idea",
+                kind=EventKind.ASSIGNMENT,
+                title="Sin dato",
+                course=curso,
+                due=base,
+                source=SourceName.POLIFORMAT,
                 submission=Submission(status=SubmissionStatus.UNKNOWN),
             ),
         ],
@@ -329,9 +337,7 @@ async def test_sin_filtro_devuelve_todas_y_avisa_de_las_desconocidas(
     assert "no traen estado de entrega" in (resultado.meta.coverage_note or "")
 
 
-async def test_el_estado_sobrevive_a_la_cache(
-    settings: Settings, cache: CacheRepository
-) -> None:
+async def test_el_estado_sobrevive_a_la_cache(settings: Settings, cache: CacheRepository) -> None:
     """El estado se guarda y se recupera de SQLite sin perderse."""
     repo = _con_entregas(settings, cache)
     resultado = await list_upcoming_deadlines(repo, 30, limit=50)
@@ -347,21 +353,15 @@ async def test_el_estado_sobrevive_a_la_cache(
 async def test_schedule_filtra_por_nombre_parcial(repo: AcademicRepository) -> None:
     """El usuario dice "Estadistica", no "14530"."""
     todo = await get_schedule(repo, date(2024, 1, 1), date(2026, 12, 31), limit=200)
-    filtrado = await get_schedule(
-        repo, date(2024, 1, 1), date(2026, 12, 31), "estad", limit=200
-    )
+    filtrado = await get_schedule(repo, date(2024, 1, 1), date(2026, 12, 31), "estad", limit=200)
 
     assert 0 < len(filtrado.sessions) < len(todo.sessions)
     assert all("Estad" in s.course.name for s in filtrado.sessions)
 
 
 async def test_schedule_filtra_por_codigo_y_por_siglas(repo: AcademicRepository) -> None:
-    por_codigo = await get_schedule(
-        repo, date(2024, 1, 1), date(2026, 12, 31), "14530", limit=200
-    )
-    por_siglas = await get_schedule(
-        repo, date(2024, 1, 1), date(2026, 12, 31), "EST", limit=200
-    )
+    por_codigo = await get_schedule(repo, date(2024, 1, 1), date(2026, 12, 31), "14530", limit=200)
+    por_siglas = await get_schedule(repo, date(2024, 1, 1), date(2026, 12, 31), "EST", limit=200)
 
     assert por_codigo.sessions
     assert {s.uid for s in por_codigo.sessions} == {s.uid for s in por_siglas.sessions}

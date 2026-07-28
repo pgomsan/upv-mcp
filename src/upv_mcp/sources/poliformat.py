@@ -337,9 +337,7 @@ class PoliformatSource:
         return SourcePayload(
             assignments=unicas,
             announcements=anuncios,
-            course_sites=[
-                CourseSite(course=curso, site_id=sid) for sid, curso in activos.items()
-            ],
+            course_sites=[CourseSite(course=curso, site_id=sid) for sid, curso in activos.items()],
             fetched_at=datetime.now(self._tz),
         )
 

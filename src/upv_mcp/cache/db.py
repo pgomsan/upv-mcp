@@ -416,9 +416,7 @@ class CacheRepository:
                 ),
                 site_id=row["site_id"],
             )
-            for row in self._conn.execute(
-                "SELECT * FROM course_sites ORDER BY course_name ASC"
-            )
+            for row in self._conn.execute("SELECT * FROM course_sites ORDER BY course_name ASC")
         ]
 
     def course_site(self, course_code: str) -> CourseSite | None:
@@ -462,9 +460,7 @@ class CacheRepository:
                 ],
             )
 
-    def replace_announcements(
-        self, calendar: str, announcements: Sequence[Announcement]
-    ) -> None:
+    def replace_announcements(self, calendar: str, announcements: Sequence[Announcement]) -> None:
         with self._conn:
             self._conn.execute("DELETE FROM announcements WHERE calendar = ?", (calendar,))
             self._conn.executemany(
@@ -539,9 +535,9 @@ class CacheRepository:
             for row in filas
         ]
 
-    def announcements(self, *, since: datetime | None = None, limit: int | None = None) -> list[
-        Announcement
-    ]:
+    def announcements(
+        self, *, since: datetime | None = None, limit: int | None = None
+    ) -> list[Announcement]:
         sql = "SELECT * FROM announcements"
         params: list[object] = []
         if since is not None:

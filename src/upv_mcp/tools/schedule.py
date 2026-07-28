@@ -82,7 +82,5 @@ async def get_schedule(
         range_start=start,
         range_end=end,
         sessions=sessions,
-        meta=build_meta(
-            repo, total_matching=total, returned=len(sessions), extra_note=nota
-        ),
+        meta=build_meta(repo, total_matching=total, returned=len(sessions), extra_note=nota),
     )
