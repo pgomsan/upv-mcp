@@ -14,7 +14,7 @@ import os
 from pathlib import Path
 from typing import Final
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 APP_NAME: Final = "upv-mcp"
@@ -31,6 +31,10 @@ USER_AGENT: Final = f"{APP_NAME}/0.1 (+https://github.com/pgomsan/upv-mcp)"
 #: Claves de los calendarios que entiende el servidor.
 SCHEDULE_KEY: Final = "schedule_ics_url"
 EXAMS_KEY: Final = "exams_ics_url"
+
+#: Credenciales de PoliformaT (v1). Nunca salen del llavero.
+POLIFORMAT_USER_KEY: Final = "poliformat_username"
+POLIFORMAT_PASSWORD_KEY: Final = "poliformat_password"
 
 
 def _xdg_data_home() -> Path:
@@ -108,6 +112,23 @@ class Settings(BaseSettings):
     schedule_ics_file: Path | None = Field(default=None, description="Horario en fichero local.")
     exams_ics_file: Path | None = Field(default=None, description="Examenes en fichero local.")
 
+    # --- PoliformaT / Sakai (v1) ------------------------------------------------
+    poliformat_base_url: str = Field(default="https://poliformat.upv.es")
+    cas_base_url: str = Field(
+        default="https://cas.upv.es",
+        description="SSO de la UPV. PoliformaT tiene deshabilitado el login por API.",
+    )
+    poliformat_username: str | None = Field(default=None)
+    poliformat_password: SecretStr | None = Field(
+        default=None,
+        description="SecretStr para que no aparezca en repr(), logs ni tracebacks.",
+    )
+    poliformat_rate_per_second: float = Field(
+        default=0.5,
+        gt=0,
+        description="Conservador a proposito: Sakai es infraestructura compartida.",
+    )
+
     # --- Cache ------------------------------------------------------------------
     data_dir: Path = Field(default_factory=lambda: _xdg_data_home() / APP_NAME)
     cache_ttl_seconds: int = Field(default=6 * 60 * 60, ge=0)
@@ -156,6 +177,11 @@ class Settings(BaseSettings):
         return specs
 
     @property
+    def poliformat_enabled(self) -> bool:
+        """PoliformaT solo se activa si hay credenciales completas."""
+        return bool(self.poliformat_username and self.poliformat_password)
+
+    @property
     def has_exam_calendar(self) -> bool:
         """Si es False, `list_upcoming_deadlines` no tiene de donde sacar examenes."""
         return any(c.name == "exams" for c in self.calendars)
@@ -182,7 +208,13 @@ def load_settings() -> Settings:
     tocar el Keychain del usuario.
     """
     overrides: dict[str, str] = {}
-    for field, key in ((("schedule_ics_url"), SCHEDULE_KEY), ("exams_ics_url", EXAMS_KEY)):
+    resolvable = (
+        ("schedule_ics_url", SCHEDULE_KEY),
+        ("exams_ics_url", EXAMS_KEY),
+        ("poliformat_username", POLIFORMAT_USER_KEY),
+        ("poliformat_password", POLIFORMAT_PASSWORD_KEY),
+    )
+    for field, key in resolvable:
         env_name = f"UPV_MCP_{field.upper()}"
         if os.environ.get(env_name):
             continue

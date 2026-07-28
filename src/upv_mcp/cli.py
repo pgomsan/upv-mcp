@@ -13,6 +13,8 @@ from getpass import getpass
 from upv_mcp.config import (
     EXAMS_KEY,
     KEYRING_SERVICE,
+    POLIFORMAT_PASSWORD_KEY,
+    POLIFORMAT_USER_KEY,
     SCHEDULE_KEY,
     delete_secret,
     read_secret,
@@ -20,6 +22,9 @@ from upv_mcp.config import (
 )
 
 _CALENDARS = {"schedule": SCHEDULE_KEY, "exams": EXAMS_KEY}
+
+#: Objetivo especial: no es una URL, son dos secretos (usuario + contrasena).
+_POLIFORMAT = "poliformat"
 
 
 def _mask(value: str) -> str:
@@ -55,23 +60,82 @@ def _read_url(calendar: str) -> str:
     return url
 
 
+def _set_poliformat() -> int:
+    """Guarda usuario y contrasena de PoliformaT.
+
+    La contrasena se pide sin eco y se guarda directamente en el llavero: no pasa
+    por la linea de comandos, ni por el historial, ni se imprime nunca.
+    """
+    if sys.stdin.isatty():
+        usuario = input("Usuario UPV (DNI o identificador): ").strip()
+        try:
+            clave = getpass("Contrasena (no se mostrara): ")
+        except (EOFError, KeyboardInterrupt):
+            clave = ""
+    else:
+        # Sin TTY: dos lineas por stdin, usuario primero.
+        usuario = sys.stdin.readline().strip()
+        clave = sys.stdin.readline().strip()
+
+    if not usuario or not clave:
+        print(
+            "Cancelado: hacen falta usuario y contrasena.\n"
+            "Sin terminal interactiva, pasalos por stdin en dos lineas.",
+            file=sys.stderr,
+        )
+        return 1
+
+    write_secret(POLIFORMAT_USER_KEY, usuario)
+    write_secret(POLIFORMAT_PASSWORD_KEY, clave)
+    print(f"Credenciales de PoliformaT guardadas en el llavero ({KEYRING_SERVICE}).")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="upv-mcp-config",
-        description="Guarda las URL iCal de la UPV en el llavero del sistema.",
+        description="Guarda las credenciales de upv-mcp en el llavero del sistema.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_set = sub.add_parser("set", help="Guardar una URL iCal (se pide sin eco por pantalla).")
-    p_set.add_argument("calendar", choices=sorted(_CALENDARS))
+    objetivos = sorted([*_CALENDARS, _POLIFORMAT])
 
-    p_show = sub.add_parser("show", help="Ver que calendarios estan configurados (enmascarado).")
-    p_show.add_argument("calendar", choices=sorted(_CALENDARS), nargs="?")
+    p_set = sub.add_parser("set", help="Guardar una credencial (se pide sin eco).")
+    p_set.add_argument("calendar", choices=objetivos)
 
-    p_del = sub.add_parser("delete", help="Borrar una URL del llavero.")
-    p_del.add_argument("calendar", choices=sorted(_CALENDARS))
+    p_show = sub.add_parser("show", help="Ver que esta configurado (enmascarado).")
+    p_show.add_argument("calendar", choices=objetivos, nargs="?")
+
+    p_del = sub.add_parser("delete", help="Borrar una credencial del llavero.")
+    p_del.add_argument("calendar", choices=objetivos)
 
     args = parser.parse_args(argv)
+
+    if args.command == "set" and args.calendar == _POLIFORMAT:
+        return _set_poliformat()
+
+    if args.command == "show":
+        names = [args.calendar] if args.calendar else objetivos
+        for name in names:
+            if name == _POLIFORMAT:
+                usuario = read_secret(POLIFORMAT_USER_KEY)
+                clave = read_secret(POLIFORMAT_PASSWORD_KEY)
+                estado = (
+                    f"usuario {usuario}, contrasena guardada"
+                    if usuario and clave
+                    else "(sin configurar)"
+                )
+                print(f"{name:10} {estado}")
+                continue
+            value = read_secret(_CALENDARS[name])
+            print(f"{name:10} {_mask(value) if value else '(sin configurar)'}")
+        return 0
+
+    if args.command == "delete" and args.calendar == _POLIFORMAT:
+        delete_secret(POLIFORMAT_USER_KEY)
+        delete_secret(POLIFORMAT_PASSWORD_KEY)
+        print("Borradas las credenciales de PoliformaT del llavero.")
+        return 0
 
     if args.command == "set":
         key = _CALENDARS[args.calendar]
@@ -84,13 +148,6 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         write_secret(key, url)
         print(f"Guardado en el llavero ({KEYRING_SERVICE} / {key}).")
-        return 0
-
-    if args.command == "show":
-        names = [args.calendar] if args.calendar else sorted(_CALENDARS)
-        for name in names:
-            value = read_secret(_CALENDARS[name])
-            print(f"{name:10} {_mask(value) if value else '(sin configurar)'}")
         return 0
 
     if args.command == "delete":
