@@ -1,0 +1,54 @@
+-- Esquema de la cache local. Migraciones versionadas con PRAGMA user_version.
+--
+-- Las fechas se guardan en UTC ISO-8601 para que el orden lexicografico coincida
+-- con el cronologico y los BETWEEN de las consultas sean correctos. La conversion
+-- a Europe/Madrid ocurre al leer, nunca aqui.
+
+-- migration:1
+CREATE TABLE IF NOT EXISTS sessions (
+    uid            TEXT PRIMARY KEY,
+    calendar       TEXT NOT NULL,
+    kind           TEXT NOT NULL,
+    course_code    TEXT NOT NULL,
+    course_name    TEXT NOT NULL,
+    course_acronym TEXT,
+    start_utc      TEXT NOT NULL,
+    end_utc        TEXT NOT NULL,
+    room           TEXT,
+    building       TEXT,
+    location_raw   TEXT,
+    teacher        TEXT,
+    teaching_type  TEXT,
+    groups_json    TEXT NOT NULL DEFAULT '[]',
+    source         TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_start ON sessions (start_utc);
+CREATE INDEX IF NOT EXISTS idx_sessions_kind_start ON sessions (kind, start_utc);
+
+CREATE TABLE IF NOT EXISTS assignments (
+    uid            TEXT PRIMARY KEY,
+    calendar       TEXT NOT NULL,
+    kind           TEXT NOT NULL,
+    title          TEXT NOT NULL,
+    course_code    TEXT NOT NULL,
+    course_name    TEXT NOT NULL,
+    course_acronym TEXT,
+    due_utc        TEXT NOT NULL,
+    room           TEXT,
+    building       TEXT,
+    location_raw   TEXT,
+    url            TEXT,
+    source         TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_assignments_due ON assignments (due_utc);
+
+-- Estado de frescura por calendario: permite servir cache marcada como stale
+-- cuando la red falla, en vez de dejar al usuario sin respuesta.
+CREATE TABLE IF NOT EXISTS calendar_meta (
+    calendar      TEXT PRIMARY KEY,
+    fetched_at    TEXT NOT NULL,
+    etag          TEXT,
+    last_modified TEXT
+);
