@@ -43,7 +43,7 @@ Romperlos es el unico motivo real para rechazar un PR aqui.
 
 - Nombre en `snake_case`, verbo primero: `get_schedule`, `list_upcoming_deadlines`.
 - Una tool por modulo en `tools/`, registrada en `server.py`.
-- Contenido navegable (materiales) va como **resource**, no como tool.
+- Navegar contenido va como **resource**; descargarlo y convertirlo, como tool.
 - La descripcion es codigo de produccion, no documentacion: decide si el modelo
   elige bien. Di que devuelve, cuando usarla y **cuando NO, redirigiendo por
   nombre** a la tool correcta.

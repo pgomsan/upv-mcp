@@ -137,6 +137,42 @@ class SakaiClient:
             base_delay=self._settings.http_backoff_base_seconds,
         )
 
+    async def download(self, url: str, *, max_bytes: int) -> tuple[bytes, str | None]:
+        """Descarga un fichero de /access/content con la sesion abierta.
+
+        OJO: sin sesion, PoliformaT devuelve **HTTP 200 con una pagina HTML** de
+        error en vez de 401. Guardar eso como si fuera el PDF era el fallo facil,
+        asi que se comprueba que el tipo devuelto no sea HTML cuando se pedia un
+        binario.
+        """
+        await self._limiter.acquire()
+        try:
+            respuesta = await self._http.get(url)
+        except httpx2.TimeoutException as exc:
+            raise RetryableError(f"Timeout descargando {url[:80]}") from exc
+        except httpx2.RequestError as exc:
+            raise RetryableError(f"Error de red descargando el fichero: {exc}") from exc
+
+        if respuesta.status_code in (401, 403):
+            raise AuthError("Sin permiso para descargar ese fichero.")
+        if respuesta.status_code >= 400:
+            raise SourceError(f"La descarga respondio {respuesta.status_code}.")
+
+        tipo = respuesta.headers.get("content-type")
+        contenido = respuesta.content
+
+        if tipo and tipo.startswith("text/html") and not url.lower().endswith((".html", ".htm")):
+            raise AuthError(
+                "PoliformaT devolvio una pagina HTML en vez del fichero. Casi siempre "
+                "significa que la sesion caduco o que ese recurso no es accesible."
+            )
+        if len(contenido) > max_bytes:
+            raise SourceError(
+                f"El fichero ocupa {len(contenido) // 1024} KB y el limite son "
+                f"{max_bytes // 1024} KB. Abrelo desde su URL."
+            )
+        return contenido, tipo
+
     async def _get_json_once(self, path: str, params: dict[str, Any]) -> Any:  # noqa: ANN401
         await self._limiter.acquire()
         try:

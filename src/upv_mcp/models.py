@@ -260,3 +260,19 @@ class AnnouncementsResult(BaseModel):
 
     announcements: list[Announcement]
     meta: ResultMeta
+
+
+class MaterialContentResult(BaseModel):
+    """Respuesta de `read_material`: el texto de un fichero de PoliformaT."""
+
+    material: Material = Field(description="El fichero que se ha leido.")
+    text: str = Field(description="Texto extraido del fichero.")
+    truncated: bool = Field(
+        default=False,
+        description="True si el documento era mas largo y se recorto. Dilo al usuario.",
+    )
+    candidates: list[str] = Field(
+        default_factory=list,
+        description="Otros ficheros que encajaban con la busqueda, por si era otro.",
+    )
+    meta: ResultMeta

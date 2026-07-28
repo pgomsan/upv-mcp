@@ -23,6 +23,7 @@ from upv_mcp.config import Settings, load_settings
 from upv_mcp.models import (
     AnnouncementsResult,
     DeadlinesResult,
+    MaterialContentResult,
     NextClassResult,
     ScheduleResult,
 )
@@ -156,9 +157,24 @@ async def list_announcements(
     )
 
 
+@mcp.tool(
+    title="Leer un material",
+    description=materials_tool.READ_DESCRIPTION,
+)
+async def read_material(
+    course: str,
+    file: str,
+    ctx: Context[AppContext],
+) -> MaterialContentResult:
+    return await materials_tool.read_material(
+        ctx.request_context.lifespan_context.repo, course, file
+    )
+
+
 # --------------------------------------------------------------------------------------
-# Resources: los materiales son contenido navegable, no una accion, asi que se
-# exponen como MCP resources y no como tool.
+# Resources para NAVEGAR los materiales: listan sin descargar. Leer el contenido de
+# un fichero concreto es la tool read_material, porque descargarlo y convertirlo es
+# una accion con coste, no algo que se consulte de pasada.
 # --------------------------------------------------------------------------------------
 
 

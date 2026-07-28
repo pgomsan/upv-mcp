@@ -21,6 +21,7 @@ TOOL_NAMES = {
     "get_next_class",
     "list_upcoming_deadlines",
     "list_announcements",
+    "read_material",
 }
 
 
@@ -69,6 +70,7 @@ async def test_las_tools_declaran_salida_estructurada() -> None:
         (next_class_tool.DESCRIPTION, ["get_schedule", "list_upcoming_deadlines"]),
         (deadlines_tool.DESCRIPTION, ["get_schedule", "get_next_class"]),
         (announcements_tool.DESCRIPTION, ["get_schedule", "list_upcoming_deadlines"]),
+        (materials_tool.READ_DESCRIPTION, ["list_upcoming_deadlines"]),
     ],
 )
 def test_cada_descripcion_desambigua_frente_a_las_otras(description: str, otras: list[str]) -> None:

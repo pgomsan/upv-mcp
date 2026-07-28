@@ -1,18 +1,54 @@
-"""Materiales de asignatura, expuestos como MCP *resources*.
+"""Materiales de asignatura: navegarlos y leerlos.
 
-Por que resources y no una tool: los apuntes son contenido navegable que el cliente
-decide cuando leer, no una accion que ejecutar. Una tool obligaria al modelo a
-"llamar" para mirar; un resource se lista y se lee cuando hace falta.
+Dos superficies, y la diferencia importa:
 
-Nunca se devuelve el contenido de los ficheros, solo sus metadatos y la URL. Una
-sola asignatura tiene 37 PDFs: volcarlos al contexto seria justo lo contrario de lo
-que persigue este servidor.
+* **Resources** (`upv://materiales`, `upv://materiales/{codigo}`) para NAVEGAR: un
+  listado con nombre, tipo, tamano y URL. No descarga ningun fichero. Son resources
+  porque es contenido que el cliente consulta cuando le hace falta.
+* **Tool `read_material`** para LEER: descarga UN fichero concreto y devuelve su
+  texto, y por eso es una tool y no un resource: descargar y convertir un PDF es una
+  accion con coste, no algo que se lea de pasada.
+
+El listado nunca trae contenido: el usuario tiene 2065 recursos y una sola
+asignatura llega a 1159. Se descarga solo el fichero que se pide, uno cada vez.
 """
 
 from __future__ import annotations
 
-from upv_mcp.models import Material
+from upv_mcp.models import CourseSite, Material, MaterialContentResult
 from upv_mcp.repository import AcademicRepository
+from upv_mcp.tools.common import build_meta
+
+READ_DESCRIPTION = """\
+Lee el CONTENIDO de un fichero de PoliformaT (apuntes, transparencias, enunciados) \
+y devuelve su texto, para poder resumirlo o responder preguntas sobre el.
+
+USALA cuando el usuario pregunte por lo que DICE un material:
+- "resumeme el tema 3 de Interfaces"
+- "que dice el enunciado de la practica 2"
+- "explicame las transparencias de redes industriales"
+- "busca en los apuntes de vision que es la homografia"
+
+NO LA USES:
+- Para saber QUE materiales hay -> eso es el resource `upv://materiales/{codigo}`, \
+que lista los ficheros sin descargarlos. Esta tool descarga uno concreto.
+- Para fechas de entrega o notas -> usa list_upcoming_deadlines.
+
+PARAMETROS:
+- course: asignatura, por codigo ("14544"), nombre o siglas.
+- file: parte del nombre del fichero ("tema 3", "enunciado practica 2"). No hace \
+falta el nombre exacto: se busca por aproximacion. Si varios encajan, se lee el \
+mas probable y los demas vienen en `candidates` para que puedas preguntar cual era.
+
+FORMATOS: PDF, PowerPoint (.pptx), Word (.docx) y texto plano. Los ZIP, imagenes y \
+videos NO se pueden leer: para esos, da la URL del listado.
+
+Un PDF escaneado (paginas que son imagenes) no tiene texto extraible y la tool lo \
+dira. En ese caso di que no puedes leerlo, NO te inventes el contenido.
+
+Si `truncated` es true, el documento era mas largo de lo que cabe: dilo en vez de \
+dar por hecho que has visto el final.\
+"""
 
 #: URI del indice de asignaturas con materiales.
 INDEX_URI = "upv://materiales"
@@ -123,3 +159,92 @@ async def render_course(
         if len(carpetas) > limit:
             partes.append(f"\n_...y {len(carpetas) - limit} carpetas mas._")
     return "\n".join(partes) + "\n"
+
+
+def _puntuar(material: Material, terminos: list[str]) -> int:
+    """Cuanto encaja un fichero con lo que ha pedido el usuario.
+
+    Busqueda por aproximacion a proposito: nadie escribe "Tema3_ModelosInteraccion
+    _v2.pdf", escriben "el tema 3". Se puntua por terminos encontrados en el nombre
+    y en la ruta, con extra si aparecen juntos.
+    """
+    titulo = material.title.lower()
+    ruta = material.url.lower()
+    if not terminos:
+        return 0
+
+    puntos = sum(4 for t in terminos if t in titulo)
+    puntos += sum(1 for t in terminos if t in ruta and t not in titulo)
+    if all(t in titulo for t in terminos):
+        puntos += 5
+    return puntos
+
+
+async def read_material(
+    repo: AcademicRepository,
+    course: str,
+    file: str,
+) -> MaterialContentResult:
+    """Implementacion. `server.py` la envuelve y le pone la descripcion MCP."""
+    await repo.ensure_fresh()
+
+    sitio = _buscar_asignatura(repo, course)
+    if sitio is None:
+        conocidas = ", ".join(
+            f"{s.course.name} ({s.course.code})" for s in repo.cache.course_sites()
+        )
+        raise ValueError(
+            f"No encuentro la asignatura '{course}'. Las tuyas son: {conocidas or 'ninguna'}."
+        )
+
+    await repo.ensure_materials(sitio.course.code)
+    materiales = [m for m in repo.cache.materials(sitio.course.code) if not m.is_folder]
+    if not materiales:
+        raise ValueError(f"{sitio.course.name} no tiene ficheros publicados.")
+
+    terminos = [t for t in file.lower().split() if t]
+    puntuados = sorted(
+        ((_puntuar(m, terminos), m) for m in materiales),
+        key=lambda par: par[0],
+        reverse=True,
+    )
+    if puntuados[0][0] == 0:
+        muestra = ", ".join(m.title for _, m in puntuados[:8])
+        raise ValueError(
+            f"Ningun fichero de {sitio.course.name} encaja con '{file}'. "
+            f"Algunos de los que hay: {muestra}"
+        )
+
+    elegido = puntuados[0][1]
+    otros = [m.title for punt, m in puntuados[1:6] if punt > 0]
+
+    texto, recortado = await repo.read_material(elegido)
+
+    nota = None
+    if otros:
+        nota = (
+            f"Habia otros ficheros parecidos ({', '.join(otros[:3])}). Si el usuario "
+            "buscaba otro, pregunta cual antes de responder."
+        )
+
+    return MaterialContentResult(
+        material=elegido,
+        text=texto,
+        truncated=recortado,
+        candidates=otros,
+        meta=build_meta(repo, total_matching=1, returned=1, extra_note=nota),
+    )
+
+
+def _buscar_asignatura(repo: AcademicRepository, course: str) -> CourseSite | None:
+    """Encuentra una asignatura por codigo, nombre parcial o siglas."""
+    termino = course.strip().lower()
+    sitios = repo.cache.course_sites()
+    for sitio in sitios:
+        if sitio.course.code == termino:
+            return sitio
+    for sitio in sitios:
+        siglas = (sitio.course.acronym or "").lower()
+        if termino == siglas or termino in sitio.course.name.lower():
+            return sitio
+    return None

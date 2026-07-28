@@ -149,3 +149,25 @@ def test_calendarios_independientes(
     inicio = datetime(2024, 1, 1, tzinfo=MADRID)
     fin = datetime(2027, 1, 1, tzinfo=MADRID)
     assert len(cache.sessions_between(inicio, fin, kinds=[EventKind.EXAM])) == 2
+
+
+def test_una_migracion_invalida_la_cache(tmp_path: Path) -> None:
+    """Regresion: tras migrar, la cache no puede seguir marcada como fresca.
+
+    Una migracion anade datos que las descargas anteriores no guardaron. Si la
+    frescura sobrevive, esos datos no se rellenan nunca y el usuario ve vacio sin
+    ninguna explicacion. Paso de verdad con la tabla de asignaturas.
+    """
+    db = tmp_path / "vieja.db"
+    conn = connect(db)
+    conn.execute("PRAGMA user_version = 1")
+    conn.execute(
+        "INSERT INTO calendar_meta (calendar, fetched_at) VALUES ('schedule', ?)",
+        (datetime.now(UTC).isoformat(),),
+    )
+    conn.commit()
+    conn.close()
+
+    with CacheRepository(db) as cache:
+        assert cache.is_calendar_stale("schedule", ttl_seconds=3600)
+        assert cache.oldest_fetched_at() is None

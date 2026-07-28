@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 
 from upv_mcp.cache.db import CacheRepository
 from upv_mcp.config import Settings
-from upv_mcp.models import Assignment
+from upv_mcp.models import Assignment, Material
 from upv_mcp.sources.base import SourceError
 from upv_mcp.sources.ics import IcsSource
 from upv_mcp.sources.poliformat import PoliformatSource
@@ -159,6 +159,12 @@ class AcademicRepository:
         self._cache.replace_materials(f"poliformat:{course_code}", materiales)
         self._cache.touch_calendar(clave)
         return True
+
+    async def read_material(self, material: Material) -> tuple[str, bool]:
+        """Descarga un material y devuelve `(texto, recortado)`."""
+        if self._poliformat is None:
+            raise SourceError("PoliformaT no esta configurado (`upv-mcp-config set poliformat`).")
+        return await self._poliformat.fetch_material_text(material.url, material.title)
 
     def _nombres_reales(self, assignments: Sequence[Assignment]) -> list[Assignment]:
         """Sustituye los titulos de PoliformaT por el nombre oficial de la asignatura.

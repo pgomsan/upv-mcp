@@ -46,16 +46,33 @@ CREATE TABLE IF NOT EXISTS course_sites (
 );
 """
 
-#: Migracion 3: estado de entrega de cada tarea.
-_MIGRACION_3 = """
-ALTER TABLE assignments ADD COLUMN submission_status TEXT;
-ALTER TABLE assignments ADD COLUMN submitted_at TEXT;
-ALTER TABLE assignments ADD COLUMN submitted_late INTEGER;
-ALTER TABLE assignments ADD COLUMN graded INTEGER;
-ALTER TABLE assignments ADD COLUMN grade TEXT;
-ALTER TABLE assignments ADD COLUMN grade_max TEXT;
-ALTER TABLE assignments ADD COLUMN feedback TEXT;
-"""
+#: Migracion 3: estado de entrega de cada tarea. `CREATE TABLE IF NOT EXISTS` es
+#: idempotente pero `ALTER TABLE ADD COLUMN` no lo es, asi que estas columnas se
+#: anaden una a una comprobando antes si ya estan (ver `_anadir_columnas`).
+_COLUMNAS_3 = (
+    ("submission_status", "TEXT"),
+    ("submitted_at", "TEXT"),
+    ("submitted_late", "INTEGER"),
+    ("graded", "INTEGER"),
+    ("grade", "TEXT"),
+    ("grade_max", "TEXT"),
+    ("feedback", "TEXT"),
+)
+
+
+def _anadir_columnas(
+    conn: sqlite3.Connection, tabla: str, columnas: tuple[tuple[str, str], ...]
+) -> None:
+    """Anade columnas que falten, sin fallar si ya existen.
+
+    Una migracion tiene que poder reintentarse: si se interrumpe a medias, la
+    siguiente apertura debe poder terminarla en vez de reventar.
+    """
+    existentes = {fila["name"] for fila in conn.execute(f"PRAGMA table_info({tabla})")}
+    for nombre, tipo in columnas:
+        if nombre not in existentes:
+            conn.execute(f"ALTER TABLE {tabla} ADD COLUMN {nombre} {tipo}")
+
 
 #: DDL de la migracion 2. El fichero schema.sql lo trae tambien, para bases nuevas;
 #: aqui se repite lo minimo para poder aplicarlo sobre una base ya existente.
@@ -120,9 +137,16 @@ def migrate(conn: sqlite3.Connection) -> None:
         if current < 2:
             conn.executescript(_MIGRACION_2)
         if current < 3:
-            conn.executescript(_MIGRACION_3)
+            _anadir_columnas(conn, "assignments", _COLUMNAS_3)
         if current < 4:
             conn.executescript(_MIGRACION_4)
+
+        # Una migracion suele anadir datos que las descargas anteriores no
+        # guardaron (tablas nuevas, columnas nuevas). Si se deja la cache marcada
+        # como fresca, esos datos no se rellenan NUNCA y el usuario ve vacio sin
+        # motivo. Invalidarla fuerza una unica descarga extra: barato y correcto.
+        conn.execute("DELETE FROM calendar_meta")
+
     conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     conn.commit()
 

@@ -43,7 +43,12 @@ from upv_mcp.models import (
     SubmissionStatus,
 )
 from upv_mcp.sources.base import SourceError, SourcePayload
+from upv_mcp.sources.extract import extract
 from upv_mcp.sources.sakai import SakaiClient
+
+#: Tope de descarga. Por encima de esto, mejor abrir la URL en el navegador: los
+#: ficheros grandes de PoliformaT suelen ser zips y videos, que no dan texto.
+MAX_DOWNLOAD_BYTES: Final = 25 * 1024 * 1024
 
 #: Los sitios de asignatura son GRA_<codigo>_<curso>. CEN_*/CDL_* no lo son.
 _SITE_ID: Final = re.compile(r"^(?P<prefijo>[A-Z]+)_(?P<codigo>\d{4,6})_(?P<curso>\d{4})$")
@@ -340,6 +345,16 @@ class PoliformatSource:
             course_sites=[CourseSite(course=curso, site_id=sid) for sid, curso in activos.items()],
             fetched_at=datetime.now(self._tz),
         )
+
+    async def fetch_material_text(self, url: str, nombre: str) -> tuple[str, bool]:
+        """Descarga un fichero y devuelve `(texto, recortado)`.
+
+        Un fichero cada vez y bajo demanda: es lo que permite preguntar por el
+        contenido de unos apuntes sin arrastrar los 2065 recursos del usuario.
+        """
+        async with SakaiClient(self._settings) as cliente:
+            datos, tipo = await cliente.download(url, max_bytes=MAX_DOWNLOAD_BYTES)
+        return extract(datos, tipo, nombre)
 
     async def fetch_materials(self, site_id: str, curso: Course) -> list[Material]:
         """Materiales de UNA asignatura, bajo demanda.

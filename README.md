@@ -23,6 +23,7 @@ todo ocurre en tu ordenador, en solo lectura y solo sobre tu cuenta.
 | `get_next_class()` | La siguiente sesion desde ahora, con aula y hora |
 | `list_upcoming_deadlines(days_ahead, days_back, pending_only, course)` | Entregas, con estado y nota ([ver limitacion](#limitaciones)) |
 | `list_announcements(days_back)` | Avisos publicados por los profesores |
+| `read_material(course, file)` | **Lee** un apunte o transparencia y devuelve su texto |
 
 ## Resources
 
@@ -31,9 +32,14 @@ todo ocurre en tu ordenador, en solo lectura y solo sobre tu cuenta.
 | `upv://materiales` | Indice de asignaturas con apuntes y enunciados |
 | `upv://materiales/{codigo}` | Materiales de una asignatura (metadatos y enlaces) |
 
-Los materiales van como *resources* y no como tool porque son contenido navegable,
-no una accion. Nunca se descarga el contenido de los ficheros: solo su nombre,
-tamano, fecha y URL, y **solo de la asignatura que abras**.
+Los *resources* sirven para **navegar**: listan nombre, tipo, tamano y URL sin
+descargar nada, y solo de la asignatura que abras. Para **leer** el contenido de un
+fichero concreto esta la tool `read_material`, que lo descarga y extrae su texto:
+asi puedes pedir "resumeme el tema 3" o "que dice el enunciado de la practica 2".
+
+Lee PDF, PowerPoint (.pptx), Word (.docx) y texto plano. Los ZIP, imagenes y videos
+no se pueden leer, y un PDF escaneado tampoco tiene texto que extraer: en esos casos
+el servidor lo dice en vez de inventarse el contenido.
 
 El filtro `course` de las tools acepta el codigo (`14537`), el nombre o parte de el
 (`vision`) o las siglas (`VC`).
@@ -115,7 +121,7 @@ Sin esto el servidor funciona igual, pero solo con el horario.
 > comun al instalar esto.
 
 Reinicia Claude Desktop **por completo** (`Cmd+Q`, no solo cerrar la ventana): el
-fichero de configuracion solo se lee al arrancar. Deberias ver las tres tools.
+fichero de configuracion solo se lee al arrancar. Deberias ver las cinco tools.
 
 Si no aparecen, el log esta en `~/Library/Logs/Claude/mcp-server-upv.log`.
 
@@ -159,7 +165,7 @@ proposito: decirte que te falta algo que quiza ya entregaste es peor que callars
 ## Desarrollo
 
 ```bash
-uv run pytest -q         # 122 tests
+uv run pytest -q         # 150 tests
 uv run mypy              # strict, limpio
 uv run ruff check .
 ```
@@ -188,8 +194,8 @@ Decisiones razonadas en [`PLAN.md`](PLAN.md); convenciones para contribuir en
 [`CLAUDE.md`](CLAUDE.md).
 
 Los cambios se validan con el guion de [`docs/manual-testing.md`](docs/manual-testing.md):
-20 casos que cubren ambiguedad entre tools, fechas relativas, rangos vacios,
-truncado y preguntas que no deben disparar ninguna tool.
+casos que cubren ambiguedad entre tools, fechas relativas, rangos vacios, truncado y
+preguntas que no deben disparar ninguna tool.
 
 ## Privacidad
 

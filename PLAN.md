@@ -128,6 +128,29 @@ su proxima clase. El refresco en frio paso de 44 s a 13 s, y abrir una asignatur
 concreta cuesta ~5 s. Es ademas lo coherente con que sea un resource: contenido que
 se lee bajo demanda.
 
+### Navegar y leer son cosas distintas
+
+Los *resources* listan materiales sin descargarlos. Leer el contenido de un fichero
+es la tool `read_material`, y es una tool y no un resource a proposito: descargar un
+PDF y convertirlo tiene coste, y ademas los modelos usan las tools con mucha mas
+fiabilidad que los resources, que hay que ir a buscar.
+
+**La extension del fichero no es de fiar**: en PoliformaT hay un
+"2025-2026.PresentacionRIN.pdf" que en realidad es un PowerPoint. El formato se
+decide mirando los BYTES (`%PDF`, `PK\x03\x04` y que hay dentro del zip), y solo
+despues el content-type y la extension. Fiarse del nombre hacia que pypdf reventara
+con "Stream has ended unexpectedly", un error que no dice nada.
+
+Y sin sesion, PoliformaT devuelve **HTTP 200 con una pagina HTML** en vez de 401, asi
+que la descarga comprueba que no le hayan dado un login disfrazado de PDF.
+
+### Una migracion invalida la cache
+
+Al anadir una tabla o una columna, los datos que las descargas anteriores no
+guardaron no existen. Si la cache sigue marcada como fresca no se rellenan nunca y
+el usuario ve vacio sin motivo -- paso de verdad con la tabla de asignaturas. Por eso
+migrar borra `calendar_meta` y fuerza una unica descarga extra.
+
 ### Sin evals automaticas en la v0
 
 Se descartaron a peticion: la validacion es manual en Claude Desktop. En su lugar

@@ -90,6 +90,8 @@ Requiere `upv-mcp-config set poliformat`.
 | 20 | "¿que asignaturas tienen material?" | **Resource** `upv://materiales` | Lista de asignaturas con su URI. No debe tardar: no descarga nada. |
 | 20b | "¿que entregas tengo de Vision por Computador?" | `list_upcoming_deadlines` con `course` | Debe usar el filtro, no pedir todo y descartar. |
 | 20c | "¿que clases tengo de Redes esta semana?" | `get_schedule` con `course` | Igual. Con un nombre inventado debe decir que esa asignatura no es suya. |
+| 20d | "resumeme el caso de practicas de Interfaces" | `read_material` | Descarga el PDF y resume su contenido real, no el nombre del fichero. |
+| 20e | "abre el zip de practicas de IHM" | `read_material` | Debe decir que un ZIP no lo puede leer y dar la URL. **Mal**: inventarse que contiene. |
 
 ## Bloque 6 — Vacio y bordes
 
