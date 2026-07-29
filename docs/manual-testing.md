@@ -1,8 +1,10 @@
 # Guion de prueba manual
 
-La v0 no lleva evals automaticas: la validacion es manual en Claude Desktop con una
-suscripcion iCal real. Este guion existe para que esa prueba sea **reproducible** y
-no dependa de acordarse de que probar.
+La validacion es manual, en Claude Desktop con datos reales. Este guion existe para
+que esa prueba sea **reproducible** y no dependa de acordarse de que probar.
+
+Se puede pasar a mano o con subagentes de contexto limpio: ver
+[`pruebas-con-agentes.md`](pruebas-con-agentes.md), que trae los prompts listos.
 
 Recorrelo entero antes de publicar un cambio que toque tools, descripciones o
 modelos de salida. Anota el resultado; si un caso falla, casi siempre se arregla en
