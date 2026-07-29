@@ -9,8 +9,10 @@ import pytest
 
 from upv_mcp.cache.db import CacheRepository
 from upv_mcp.config import CalendarSpec, Settings
+from upv_mcp.models import Course, Material
 from upv_mcp.repository import AcademicRepository
 from upv_mcp.sources.base import SourceError, SourcePayload
+from upv_mcp.sources.extract import ExtractionError
 from upv_mcp.sources.ics import IcsSource
 
 
@@ -234,3 +236,37 @@ async def test_los_materiales_se_bajan_solo_de_la_asignatura_pedida(
     await repo.ensure_materials("14541")
 
     assert pedidos == ["GRA_14541_2025"], "solo la asignatura pedida"
+
+
+async def test_un_formato_ilegible_trae_la_url_de_descarga(
+    settings: Settings, cache: CacheRepository
+) -> None:
+    """ "Abrelo desde su URL" sin dar la URL obliga a buscarla a mano en PoliformaT.
+
+    El extractor solo ve bytes y un tipo MIME, asi que no puede saber de donde
+    salieron; quien conoce el material es el repositorio.
+    """
+
+    class _PoliformatQueNoSabeLeerZips:
+        async def fetch_material_text(self, url: str, nombre: str) -> tuple[str, bool]:
+            raise ExtractionError(
+                "No se puede extraer texto de este fichero (tipo 'application/zip')."
+            )
+
+    material = Material(
+        course=Course(code="14544", name="Interfaces Humano-Maquina"),
+        title="PracticasIHM.zip",
+        url="https://poliformat.upv.es/access/content/group/GRA_14544_2025/PracticasIHM.zip",
+        content_type="application/zip",
+    )
+    repo = AcademicRepository(
+        settings,
+        cache,
+        poliformat=_PoliformatQueNoSabeLeerZips(),  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(ExtractionError) as info:
+        await repo.read_material(material)
+
+    assert material.url in str(info.value)
+    assert "application/zip" in str(info.value), "el motivo original no se pierde"

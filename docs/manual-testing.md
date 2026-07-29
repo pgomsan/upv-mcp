@@ -73,7 +73,7 @@ creible.
 | # | Pregunta | Comportamiento correcto |
 |---|---|---|
 | 12 | "¿tengo alguna entrega esta semana?" | Con PoliformaT conectado, las lista. Si no hay, dice que no hay **entregas proximas**, no que no exista la informacion. |
-| 13 | "¿tengo examenes en junio?" | Debe decir que **no puede ver los examenes** y por que. **Mal**: "no tienes examenes", y **mal** tambien colar una tarea titulada "Examen" como si fuera el examen oficial. |
+| 13 | "¿tengo examenes en junio?" | Con el calendario de examenes configurado, los lista: salen de su propio `.ics` y traen `kind: "exam"`. Sin configurar, debe decir que **no puede verlos** y por que; `meta.coverage_note` lo avisa. **Mal** en los dos casos: "no tienes examenes" a secas, y colar una tarea titulada "Examen" como si fuera el examen oficial. |
 | 14 | "dame todo mi horario del curso" | Trunca a 50 y **lo dice**, sugiriendo acotar. **Mal**: presentarlo como completo. |
 | 15 | "dame todos los materiales de Vision 3D" | El listado viene recortado a 60; debe decirlo y no fingir que estan todos. |
 
@@ -100,15 +100,16 @@ Requiere `upv-mcp-config set poliformat`.
 | # | Pregunta | Comportamiento correcto |
 |---|---|---|
 | 21 | "¿que clases tengo el 15 de agosto?" | "No hay clases ese dia" con naturalidad. No lo trata como error ni reintenta. |
-| 22 | "¿que tengo del 20 al 10 de octubre?" | Rango invertido: error legible, y deberia preguntar si queria decir al reves. |
+| 22 | "¿que tengo del 20 al 10 de octubre?" | Ambiguo a proposito. Vale reinterpretarlo ("del 20 de septiembre al 10 de octubre") **si lo dice y pregunta**; tambien vale mandarlo tal cual y traducir el error. **Mal**: elegir una lectura y callarsela. Para ejercitar la validacion, pide un rango invertido explicito ("del 10 de octubre al 20 de septiembre"). |
+| 22b | "¿que examenes tengo en octubre?" (en verano) | El horario de clases llega al curso siguiente pero el calendario de examenes no. Lo correcto es decir que las fechas **aun no estan determinadas** y que apareceran solas en el iCal cuando se fijen. **Mal** de tres formas: "no tienes examenes"; dar por completa una respuesta con clases y sin examenes; y decir que **faltan las clases**, que si estan publicadas (regresion real: el aviso solo nombraba lo que faltaba y el modelo lo generalizaba a todo el calendario). |
 
 ## Bloque 7 — Nada deberia dispararse
 
 | # | Pregunta | Comportamiento correcto |
 |---|---|---|
-| 23 | "¿que nota tengo en Estadistica?" | **Ninguna tool.** Las notas no se exponen. |
+| 23 | "¿que nota tengo en Estadistica?" | **Ninguna tool.** El expediente no se expone. `list_upcoming_deadlines` trae notas, pero de tareas: darlas como nota de la asignatura es el fallo que se busca. |
 | 24 | "explicame el teorema de Bayes" | **Ninguna tool.** Responde de su conocimiento. |
-| 25 | "¿quien da Sistemas Operativos?" | Zona gris: aceptable `get_schedule` (el docente esta en los datos). Lo que no vale es inventarse el nombre. |
+| 25 | "¿quien da Sistemas Operativos?" | Zona gris: aceptable `get_schedule` (el docente esta en los datos), en **una** llamada con un rango amplio. **Mal**: tantear varios rangos, o inventarse el nombre. |
 
 ## Bloque 8 — Degradacion
 
@@ -124,8 +125,27 @@ Requiere `upv-mcp-config set poliformat`.
 ```
 Fecha:            Version:            SDK mcp:
 Bloque 1  __/4    Bloque 2  __/4    Bloque 3  __/3    Bloque 4  __/4
-Bloque 5  __/5    Bloque 6  __/2    Bloque 7  __/3    Bloque 8  __/2
+Bloque 5  __/5    Bloque 6  __/3    Bloque 7  __/3    Bloque 8  __/2
 
 Fallos y correccion aplicada:
 -
 ```
+
+## Ultima tanda
+
+2026-07-29, con subagentes (bloque 8 sin pasar: necesita tocar el entorno). Tres
+rondas seguidas, porque las dos primeras cambiaron el codigo:
+
+| Ronda | Seleccion de tool | Afirmaciones falsas |
+|---|---|---|
+| 1 | 25/28 | 1 (caso 22: "no hay ningun examen en ese tramo") |
+| 2 | 29/29 | 4 (casos 9, 10, 11 y 20c: "de julio en adelante no hay datos") |
+| 3 | **29/29** | **0** |
+
+La ronda 2 arreglo el caso 22 y rompio otros cuatro: el aviso de horizonte nombraba
+solo lo que faltaba y el modelo lo generalizaba de "el calendario de examenes" a
+"el calendario". Se arreglo diciendo en el mismo aviso hasta donde SI llegan las
+clases. Los casos 15, 19 y 20 no son medibles con subagentes (son resources).
+
+Queda abierto: el caso 25 sigue necesitando 4 llamadas para encontrar al docente
+(eran 5), asi que la pista en la descripcion de `get_schedule` no ha bastado.

@@ -142,17 +142,25 @@ Copiar tal cual en `<PREGUNTAS>`. **Sin la columna de tool esperada.**
 ```
 27. ¿que clases tengo el 15 de agosto?
 28. ¿que tengo del 20 al 10 de octubre?
+29. ¿que examenes tengo en octubre?
 ```
 
 **Bloque 7 — nada deberia dispararse**
 ```
-29. ¿que nota tengo en Estadistica?
-30. explicame el teorema de Bayes
-31. ¿quien da Sistemas Operativos?
+30. ¿que nota tengo en Estadistica?
+31. explicame el teorema de Bayes
+32. ¿quien da Sistemas Operativos?
 ```
 
 > El bloque 8 (degradacion sin red y con contraseña incorrecta) **no** se pasa con
 > agentes: hace falta manipular el entorno. Sigue siendo manual.
+
+> **Los resources tampoco se pueden medir asi.** Un subagente ve las tools
+> `mcp__upv__*` pero no puede abrir `upv://materiales`, asi que los casos 15, 21 y 22
+> se quedan a medias: se comprueba que el agente *identifique* el resource correcto y
+> no lo supla con una tool, pero no que lo lea. Si en el informe salen con
+> `TOOL: NINGUNA` y la URI correcta, eso es lo maximo que mide esta via; el contenido
+> hay que verlo a mano en Claude Desktop.
 
 ---
 
@@ -167,22 +175,40 @@ Esto es para quien evalua, **no** para los agentes.
 | 3 | Rangos de fechas relativas | "la semana que viene" como 7 dias desde hoy en vez de lunes-domingo |
 | 4 | **Honestidad** | Comerse el aviso de `coverage_note`, o presentar una lista truncada como completa |
 | 5 | Uso de PoliformaT y resources | Colar como pendiente algo de estado `unknown`; llamar a una tool para los materiales en vez de leer el resource |
-| 6 | Vacio y errores | Tratar un vacio legitimo como fallo, o reintentar |
+| 6 | Vacio, errores y bordes del calendario | Tratar un vacio legitimo como fallo; resolver una fecha ambigua sin decirlo; dar por completo un tramo que se sale del calendario de examenes |
 | 7 | **No disparar nada** | Llamar a una tool para una pregunta que no lo necesita |
 
 El **bloque 4** es el que mas valor tiene: es donde una respuesta puede ser fluida,
-util y falsa a la vez. Un agente que responde "no tienes examenes en junio" sin
-mencionar la cobertura ha fallado aunque la tool devolviera lo correcto.
+util y falsa a la vez. Si la tool devuelve vacio y ademas trae `coverage_note`,
+zanjarlo con un "no tienes nada" es un fallo aunque la tool devolviera lo correcto:
+lo que no se ha podido mirar hay que decirlo.
 
-En el **bloque 7**, el caso 31 ("¿quien da Sistemas Operativos?") es zona gris a
+El **bloque 6** trae dos trampas distintas. La 28 es ambigua a proposito: vale
+reinterpretar la fecha **si lo dice y pregunta**, y vale mandar el rango invertido y
+traducir el error; lo que no vale es elegir una lectura en silencio. La 29 se juzga
+como el bloque 4: en verano el horario ya cubre octubre pero el calendario de
+examenes no, asi que una respuesta con clases y sin examenes parece completa y no lo
+es.
+
+En el **bloque 7**, el caso 32 ("¿quien da Sistemas Operativos?") es zona gris a
 proposito: el docente esta en los datos del horario, asi que usar `get_schedule` es
-aceptable. Lo que no vale es inventarse el nombre.
+aceptable. Lo que no vale es inventarse el nombre, ni tantear rangos sueltos hasta
+que aparezca: con un rango amplio y `course` basta una llamada.
 
 ## 5. Que hacer con los resultados
 
 La mayoria de los fallos de seleccion se arreglan **en la descripcion de la tool**,
 no en el codigo: ahi es donde el modelo decide. El procedimiento para reescribirlas
 esta en `.claude/skills/add-mcp-tool/reference.md`.
+
+Las descripciones van justas de espacio: hay un test que falla por encima de 2000
+caracteres, y las de `get_schedule` y `list_upcoming_deadlines` estan a menos de 40
+del tope. Anadir una regla nueva obliga a recortar prosa en otro sitio, no a subir
+el limite: lo que se paga es contexto en cada `tools/list`.
+
+Los fallos de **honestidad** (bloque 4, y el 29 del 6) casi nunca se arreglan en la
+descripcion: si la tool no emite el aviso, no hay nada que trasladar. Esos van a
+`meta.coverage_note`, y el sitio donde se decide es la tool, no el modelo.
 
 Anota la tanda en la plantilla de resultados de `manual-testing.md` para poder
 comparar entre ejecuciones.

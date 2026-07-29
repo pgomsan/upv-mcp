@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 from upv_mcp.cache.db import SCHEMA_VERSION, CacheRepository, connect
 from upv_mcp.config import Settings
-from upv_mcp.models import EventKind
+from upv_mcp.models import Assignment, Course, EventKind, SourceName
 from upv_mcp.sources.ics import IcsSource
 
 MADRID = ZoneInfo("Europe/Madrid")
@@ -122,6 +122,43 @@ def test_filtro_por_kind(cache: CacheRepository, examenes_ics: Path, settings: S
     assert cache.count_assignments_between(inicio, fin) == 2
 
 
+def test_matching_course_names_ignora_tildes(
+    cache: CacheRepository, horario_ics: Path, settings: Settings
+) -> None:
+    """SQLite no sabe de tildes: su LOWER() y su LIKE son ASCII.
+
+    Por eso el encaje se hace en Python. "estadistica" tiene que encontrar
+    "Estadística", que es como lo escribe el generador de la UPV.
+    """
+    payload = IcsSource(settings).parse(horario_ics.read_text(encoding="utf-8"), "schedule")
+    cache.replace_calendar("schedule", payload.sessions)
+
+    assert cache.matching_course_names("estadistica") == ["Estadística"]
+    assert cache.matching_course_names("Estadística") == ["Estadística"]
+    assert cache.matching_course_names("EST") == ["Estadística"], "por siglas"
+    assert cache.matching_course_names("14530") == ["Estadística"], "por codigo"
+    assert cache.matching_course_names("Quimica") == []
+
+
+def test_catalogo_incluye_examenes_aunque_no_traigan_codigo(
+    cache: CacheRepository, examenes_ics: Path, settings: Settings
+) -> None:
+    """Los examenes vienen del iCal sin `course_code`, asi que filtrar por codigo los
+    dejaba fuera. Se filtra por nombre justamente para no perderlos."""
+    payload = IcsSource(settings).parse(examenes_ics.read_text(encoding="utf-8"), "exams")
+    cache.replace_calendar("exams", payload.sessions, payload.assignments)
+
+    assert "Estadistica" in cache.matching_course_names("estadistica")
+
+    inicio = datetime(2025, 1, 1, tzinfo=MADRID)
+    fin = datetime(2027, 1, 1, tzinfo=MADRID)
+    assert cache.count_assignments_between(inicio, fin, course="estadistica") == 1
+
+    # Sin codigo, la misma asignatura entra dos veces en el catalogo; al usuario hay
+    # que listarle nombres, no filas.
+    assert len(cache.known_course_names()) == len(set(cache.known_course_names()))
+
+
 def test_frescura_y_staleness(cache: CacheRepository) -> None:
     assert cache.is_empty()
     assert cache.is_stale(ttl_seconds=3600)
@@ -171,3 +208,58 @@ def test_una_migracion_invalida_la_cache(tmp_path: Path) -> None:
     with CacheRepository(db) as cache:
         assert cache.is_calendar_stale("schedule", ttl_seconds=3600)
         assert cache.oldest_fetched_at() is None
+
+
+def test_el_horizonte_de_entregas_acaba_en_la_fuente_mas_corta(
+    cache: CacheRepository, examenes_ics: Path, settings: Settings
+) -> None:
+    """El horizonte honesto es el MINIMO por origen, no el MAXIMO de todo junto.
+
+    Los examenes y las tareas de PoliformaT se publican por separado. Si se toma el
+    maximo, unas tareas que lleguen a diciembre tapan que el calendario de examenes
+    se acabo en enero, que es justo el hueco que el aviso debe delatar.
+    """
+    payload = IcsSource(settings).parse(examenes_ics.read_text(encoding="utf-8"), "exams")
+    cache.replace_calendar("exams", payload.sessions, payload.assignments)
+
+    solo_examenes = cache.latest_known_due()
+    assert solo_examenes is not None
+
+    tarea_tardia = Assignment(
+        uid="tarea-diciembre",
+        kind=EventKind.ASSIGNMENT,
+        title="Memoria final",
+        course=Course(code="14541", name="Redes Industriales"),
+        due=datetime(2026, 12, 20, 23, 59, tzinfo=MADRID),
+        source=SourceName.POLIFORMAT,
+    )
+    cache.replace_calendar("poliformat", [], [tarea_tardia])
+
+    assert cache.latest_known_due() == solo_examenes, "la tarea de diciembre no lo estira"
+
+
+def test_horizonte_por_tipo_de_sesion(
+    cache: CacheRepository, horario_ics: Path, examenes_ics: Path, settings: Settings
+) -> None:
+    """`get_schedule` sirve dos calendarios y necesita saber donde acaba cada uno."""
+    src = IcsSource(settings)
+    clases = src.parse(horario_ics.read_text(encoding="utf-8"), "schedule")
+    examenes = src.parse(examenes_ics.read_text(encoding="utf-8"), "exams")
+    cache.replace_calendar("schedule", clases.sessions)
+    cache.replace_calendar("exams", examenes.sessions, examenes.assignments)
+
+    fin_clases = cache.latest_known_session(EventKind.CLASS)
+    fin_examenes = cache.latest_known_session(EventKind.EXAM)
+
+    assert fin_clases is not None and fin_examenes is not None
+    assert fin_clases != fin_examenes, "son calendarios distintos, no el mismo dato"
+
+
+def test_sin_examenes_el_horizonte_de_examenes_es_desconocido(
+    cache: CacheRepository, horario_ics: Path, settings: Settings
+) -> None:
+    """Sin calendario de examenes no hay horizonte que anunciar: avisa el repositorio."""
+    payload = IcsSource(settings).parse(horario_ics.read_text(encoding="utf-8"), "schedule")
+    cache.replace_calendar("schedule", payload.sessions)
+
+    assert cache.latest_known_session(EventKind.EXAM) is None

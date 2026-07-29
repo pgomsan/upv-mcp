@@ -259,6 +259,25 @@ _CON_ENTREGAS: dict[str, Any] = {
             "dueTimeString": "2026-04-08T10:00:00Z",
             "submissions": None,
         },
+        {
+            # Corregida con un 9,50 pero sin entrega a nombre de este alumno: es
+            # como se ve un trabajo de grupo, donde entrega un miembro. Datos
+            # reales: el proyecto de IHM y cuatro entregas de PR3.
+            "id": "grupo",
+            "title": "Entrega proyecto en grupo",
+            "context": "GRA_14541_2025",
+            "dueTimeString": "2026-04-15T10:00:00Z",
+            "gradeScaleMaxPoints": "10,00",
+            "submissions": [
+                {
+                    "submitted": True,
+                    "userSubmission": False,
+                    "dateSubmittedEpochSeconds": None,
+                    "graded": True,
+                    "grade": "9,50",
+                }
+            ],
+        },
     ]
 }
 
@@ -317,6 +336,27 @@ async def test_sin_registro_es_desconocido_no_pendiente(
     assert desconocida.submission is not None
     assert desconocida.submission.status is SubmissionStatus.UNKNOWN
     assert desconocida.is_pending is False, "unknown NUNCA cuenta como pendiente"
+
+
+async def test_corregida_sin_registro_de_entrega_no_es_pendiente(
+    source_entregas: PoliformatSource,
+) -> None:
+    """Si tiene un 9,50, el trabajo existe: decir "te falta entregarla" es falso.
+
+    Sakai da `userSubmission` false y `graded` true a la vez en el trabajo de grupo
+    (6 casos reales). Marcarlo NOT_SUBMITTED lo colaba en `pending_only`, que es
+    justo la pregunta "que me queda por hacer".
+    """
+    payload = await source_entregas.fetch()
+    grupo = next(a for a in payload.assignments if a.uid.endswith("grupo"))
+
+    assert grupo.submission is not None
+    assert grupo.submission.status is SubmissionStatus.UNKNOWN, (
+        "no consta entrega suya, pero NOT_SUBMITTED afirmaria algo falso"
+    )
+    assert grupo.submission.graded is True
+    assert grupo.submission.grade == "9,50", "la nota se conserva"
+    assert grupo.is_pending is False
 
 
 async def test_ignora_el_campo_submitted_que_miente(

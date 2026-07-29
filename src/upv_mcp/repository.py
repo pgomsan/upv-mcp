@@ -16,6 +16,7 @@ from upv_mcp.cache.db import CacheRepository
 from upv_mcp.config import Settings
 from upv_mcp.models import Assignment, Material
 from upv_mcp.sources.base import SourceError
+from upv_mcp.sources.extract import ExtractionError
 from upv_mcp.sources.ics import IcsSource
 from upv_mcp.sources.poliformat import PoliformatSource
 
@@ -164,7 +165,13 @@ class AcademicRepository:
         """Descarga un material y devuelve `(texto, recortado)`."""
         if self._poliformat is None:
             raise SourceError("PoliformaT no esta configurado (`upv-mcp-config set poliformat`).")
-        return await self._poliformat.fetch_material_text(material.url, material.title)
+        try:
+            return await self._poliformat.fetch_material_text(material.url, material.title)
+        except ExtractionError as exc:
+            # El extractor recibe bytes y un tipo MIME, asi que no puede saber de
+            # donde salieron: decir "abrelo desde su URL" sin dar la URL deja al
+            # estudiante buscandola a mano en PoliformaT. Aqui si se conoce.
+            raise ExtractionError(f"{exc} URL de descarga: {material.url}") from exc
 
     def _nombres_reales(self, assignments: Sequence[Assignment]) -> list[Assignment]:
         """Sustituye los titulos de PoliformaT por el nombre oficial de la asignatura.

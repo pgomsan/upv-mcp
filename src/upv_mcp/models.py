@@ -145,10 +145,17 @@ class Assignment(BaseModel):
 
     @property
     def is_pending(self) -> bool:
-        """Solo es 'pendiente' lo que consta explicitamente como no entregado."""
-        return (
-            self.submission is not None and self.submission.status is SubmissionStatus.NOT_SUBMITTED
-        )
+        """Solo es 'pendiente' lo que consta explicitamente como no entregado.
+
+        Lo ya corregido nunca es pendiente, aunque la fuente diga lo contrario: si
+        tiene nota, el trabajo existe y no queda nada que entregar. PoliformaT
+        produce esa contradiccion (ver `_submission` en sources/poliformat.py) y
+        aqui se corta, para que ninguna fuente pueda colar en "lo que me falta"
+        algo que el estudiante ya tiene aprobado.
+        """
+        if self.submission is None or self.submission.graded:
+            return False
+        return self.submission.status is SubmissionStatus.NOT_SUBMITTED
 
 
 class Material(BaseModel):
