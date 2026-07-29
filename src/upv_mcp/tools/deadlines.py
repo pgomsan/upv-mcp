@@ -1,11 +1,15 @@
 """Tool `list_upcoming_deadlines`: fechas limite proximas.
 
-Sobre la cobertura real en la v0: el calendario de horarios de la UPV contiene solo
-clases, y las entregas viven en PoliformaT, que no esta integrado todavia. Por eso
-la tool existe con su forma definitiva pero puede devolver lista vacia. La
-alternativa -- no exponerla, o exponerla sin avisar -- era peor: sin aviso, el
-modelo concluye "no tienes nada pendiente", que es una respuesta falsa y que el
-estudiante se puede creer.
+Junta dos origenes: las entregas de PoliformaT y los examenes del iCal oficial.
+
+Toda la tool gira alrededor de una distincion: **"no hay nada" y "no lo se" no son
+lo mismo**, y confundirlos produce respuestas falsas que el estudiante se cree. Se
+traduce en tres avisos distintos en `meta.coverage_note`:
+
+* Sin calendario de examenes configurado -> no se ven, y hay que decirlo.
+* Con datos que no llegan a la fecha preguntada (el calendario se publica por curso,
+  asi que en verano no cubre septiembre) -> vacio significa "aun no publicado".
+* Con entregas sin estado -> no se sabe si estan hechas.
 """
 
 from __future__ import annotations
@@ -90,17 +94,31 @@ async def list_upcoming_deadlines(
         total = repo.cache.count_assignments_between(start, end, course=course)
         deadlines = repo.cache.assignments_between(start, end, course=course, limit=limit)
 
+    # "No hay nada" y "los datos no llegan hasta ahi" son cosas MUY distintas para
+    # un estudiante. El calendario de examenes se publica por curso academico, asi
+    # que en verano no cubre septiembre y una lista vacia parece tranquilizadora
+    # cuando en realidad no se sabe.
+    horizonte = repo.cache.latest_known_due()
+    aviso_horizonte = None
+    if horizonte is not None and end > horizonte:
+        aviso_horizonte = (
+            f"Los datos publicados llegan hasta el {horizonte:%Y-%m-%d}. Mas alla de "
+            "esa fecha NO hay informacion todavia, asi que una lista vacia no "
+            "significa que no haya nada: significa que aun no se ha publicado."
+        )
+
     desconocidas = sum(
         1
         for a in deadlines
         if a.submission is None or a.submission.status is SubmissionStatus.UNKNOWN
     )
-    nota = (
-        f"{desconocidas} de las entregas listadas no traen estado de entrega: no se "
-        "sabe si estan hechas. No las des por pendientes ni por entregadas."
-        if desconocidas
-        else None
-    )
+    avisos = [aviso_horizonte] if aviso_horizonte else []
+    if desconocidas:
+        avisos.append(
+            f"{desconocidas} de las entregas listadas no traen estado de entrega: no "
+            "se sabe si estan hechas. No las des por pendientes ni por entregadas."
+        )
+    nota = " ".join(avisos) if avisos else None
 
     return DeadlinesResult(
         horizon_days=days_ahead,

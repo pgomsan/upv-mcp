@@ -394,3 +394,40 @@ async def test_deadlines_filtra_por_asignatura(
         assert len(todas.deadlines) == 2
         assert len(solo.deadlines) == 1
         assert "Estad" in solo.deadlines[0].course.name
+
+
+async def test_avisa_cuando_los_datos_no_llegan_a_la_fecha_preguntada(
+    tmp_path: Path, horario_ics: Path, examenes_ics: Path
+) -> None:
+    """ "No tienes examenes" y "el calendario no llega hasta ahi" no son lo mismo.
+
+    Caso real: en julio se pregunta por el proximo examen, el calendario cubre solo
+    hasta junio del curso que acaba, y la respuesta vacia suena tranquilizadora
+    cuando en realidad no se sabe nada de septiembre.
+    """
+    settings = Settings(
+        schedule_ics_file=horario_ics, exams_ics_file=examenes_ics, data_dir=tmp_path / "d"
+    )
+    with CacheRepository(settings.db_path) as cache:
+        # Los examenes del fixture son de enero de 2026; preguntamos desde julio.
+        repo = _repo_en(settings, cache, datetime(2026, 7, 29, tzinfo=MADRID))
+        resultado = await list_upcoming_deadlines(repo, 120, limit=50)
+
+        assert resultado.deadlines == []
+        nota = resultado.meta.coverage_note or ""
+        assert "Los datos publicados llegan hasta" in nota
+        assert "no significa que no haya nada" in nota
+
+
+async def test_no_avisa_si_los_datos_cubren_la_pregunta(
+    tmp_path: Path, horario_ics: Path, examenes_ics: Path
+) -> None:
+    """El aviso solo aparece cuando hace falta: si no, es ruido en cada respuesta."""
+    settings = Settings(
+        schedule_ics_file=horario_ics, exams_ics_file=examenes_ics, data_dir=tmp_path / "d"
+    )
+    with CacheRepository(settings.db_path) as cache:
+        repo = _repo_en(settings, cache, datetime(2026, 1, 1, tzinfo=MADRID))
+        resultado = await list_upcoming_deadlines(repo, 5, limit=50)
+
+        assert "Los datos publicados llegan hasta" not in (resultado.meta.coverage_note or "")

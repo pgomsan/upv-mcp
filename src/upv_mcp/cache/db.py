@@ -404,6 +404,16 @@ class CacheRepository:
             params.append(limit)
         return [self._row_to_assignment(r) for r in self._conn.execute(sql, params)]
 
+    def latest_known_due(self) -> datetime | None:
+        """Fecha limite mas lejana que se conoce, de cualquier origen.
+
+        Permite distinguir "no tienes nada" de "los datos no llegan hasta ahi": el
+        calendario de examenes se publica por curso academico, asi que en verano no
+        cubre el curso siguiente.
+        """
+        fila = self._conn.execute("SELECT MAX(due_utc) AS f FROM assignments").fetchone()
+        return _from_iso(fila["f"], self._tz) if fila and fila["f"] else None
+
     def count_assignments_between(
         self, start: datetime, end: datetime, *, course: str | None = None
     ) -> int:
