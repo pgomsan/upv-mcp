@@ -177,18 +177,28 @@ produce los mismos modelos que ya consumian. Era la apuesta de la v0 y salio bie
 
 ## Roadmap
 
-### v1.1 — Calendario de examenes (bloqueado por datos)
+### ~~v1.1 — Calendario de examenes~~ (HECHO)
 
-Es el unico hueco declarado que queda. Los examenes tienen un calendario propio en
-algun sitio de la UPV, todavia por localizar. Dos vias posibles:
+Cerrado. El calendario se genera en la intranet (**Horarios > Compartir horarios**),
+con la consulta marcada como **publica**: la suscripcion iCal solo se ofrece en las
+publicas. Al conectarlo entraron 42 examenes y **el aviso de cobertura desaparecio
+solo**, igual que habia pasado con PoliformaT. Fue configuracion y no codigo, como
+estaba previsto desde la v0.
 
-1. Un segundo iCal desde el visor de horarios de la intranet. El codigo ya lo
-   soporta: `IcsSource` acepta N calendarios, `_classify()` distingue examen de
-   clase, y hay fixture y tests que lo cubren. Seria configuracion, no codigo.
-2. Alguna pagina o servicio de la ETSINF con el calendario oficial de examenes.
+Dos cosas que hubo que arreglar al enchufarlo:
 
-Al conectarlo, el aviso de cobertura desaparece solo, igual que desaparecio el de
-PoliformaT al integrarlo.
+- La intranet entrega el enlace como **`webcal://`**, que es `https://` con otro
+  nombre pero que ningun cliente HTTP entiende. Se normaliza en la configuracion,
+  una sola vez, y no en cada sitio que descargue.
+- Ese fallo se reintentaba **tres veces**. Un protocolo no soportado no se arregla
+  reintentando: ahora es un error inmediato y con mensaje accionable.
+
+Se descarto una tercera via: el visor publico nuevo (`aplicat.upv.es/restplanhor`)
+expone una API REST sin login, y se llego a reconstruir su busqueda -- ETSINF es la
+ERT "R", y `verExamenes` es el campo correcto. Pero devuelve **cero examenes** en
+todas las combinaciones probadas, mientras sirve 2.460 eventos de clase en la misma
+consulta. Los examenes deben de estar detras de la parte autenticada
+(`consulta-publica/config` responde 401). Queda anotado por si algun dia cambia.
 
 ### v1.2 — Transversal pendiente
 

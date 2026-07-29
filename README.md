@@ -133,23 +133,24 @@ claude mcp add upv -- uv --directory /ruta/absoluta/a/upv-mcp run upv-mcp
 
 ## Limitaciones
 
-**No ve tus examenes.** El calendario de horarios de la UPV contiene clases pero no
-examenes, y en PoliformaT ni todo examen es una tarea ni toda tarea es un examen:
-hay tareas tituladas «Examen parcial» que no lo son, y examenes que no aparecen como
-tarea. Clasificarlos por el titulo produciria falsos positivos y negativos, asi que
-**no se clasifican**.
-
-El servidor declara esta limitacion en cada respuesta (`meta.coverage_note`) y las
-descripciones de las tools instruyen al modelo para que diga *«no puedo ver tus
-examenes»* y nunca *«no tienes examenes»*. Es deliberado: una respuesta falsa y
-creible es peor que una incompleta.
-
-Si encuentras un iCal de examenes en tu intranet, conectalo y funciona sin tocar
-codigo:
+**Los examenes necesitan su propio calendario.** El iCal de horarios contiene
+clases y **ninguna** examen. Los examenes se generan aparte, desde la intranet en
+**Horarios → Compartir horarios**: crea una consulta que incluya examenes, marcala
+como **publica** (la suscripcion iCal solo se ofrece en las publicas) y usa
+«Suscribirse por URL». Despues:
 
 ```bash
 uv run upv-mcp-config set exams
 ```
+
+Sin ese calendario, el servidor **avisa en cada respuesta** de que no puede ver tus
+examenes, y las descripciones de las tools obligan al modelo a decir *«no puedo
+verlos»* y nunca *«no tienes examenes»*. Es deliberado: una respuesta falsa y
+creible es peor que una incompleta.
+
+Las tareas de PoliformaT nunca se cuentan como examenes aunque se titulen «Examen
+parcial»: ni todo examen es una tarea ni toda tarea es un examen, y clasificar por
+el titulo daria falsos positivos.
 
 **Solo el curso academico en marcha.** PoliformaT acumula todas las asignaturas que
 has cursado; se sincronizan unicamente las del ultimo curso, para no llenar las

@@ -17,8 +17,11 @@ Detalles que importan y que costaria descubrir de nuevo:
 * Los DTSTART vienen en UTC y el generador SI ajusta el cambio de hora (una misma
   clase salta de 13:00Z a 14:00Z al pasar a horario de invierno). Basta convertir.
 * El export viene pre-expandido: no hay RRULE ni VTIMEZONE que resolver.
-* Este calendario es "Horario de Clases" y no contiene examenes. Si se configura un
-  segundo calendario de examenes, se clasifica por contenido (ver `_classify`).
+* El calendario "Horario de Clases" NO contiene examenes: son 841 eventos y los 841
+  son clases. Los examenes vienen de un segundo iCal, que se genera aparte desde la
+  intranet (Horarios > Compartir horarios, con la consulta marcada como publica).
+* Un evento se clasifica como examen por su calendario de procedencia, no por su
+  titulo (ver `_classify`). En el feed de examenes, sus 42 eventos lo son.
 """
 
 from __future__ import annotations
@@ -138,10 +141,10 @@ def _parse_description(raw: str, acronym: str | None) -> tuple[Course, dict[str,
 def _classify(course_name: str, summary: str, description: str, calendar_name: str) -> EventKind:
     """Decide si un evento es clase o examen.
 
-    El calendario de horarios trae siempre 'Tipo de docencia'; el de examenes no
-    existe todavia, asi que la deteccion es por palabras clave y por el calendario
-    de procedencia. Al aislar la decision aqui, incorporar el feed de examenes
-    consiste en ajustar esta funcion.
+    Manda el calendario de procedencia: el de horarios trae siempre 'Tipo de
+    docencia' y el de examenes no. Las palabras clave son solo un ultimo recurso
+    para un calendario mezclado, porque clasificar por titulo produce falsos
+    positivos ("Examen parcial" como nombre de una practica).
     """
     if "tipo de docencia" in description.lower():
         return EventKind.CLASS
@@ -182,7 +185,7 @@ class IcsSource:
 
     # -- Obtencion ----------------------------------------------------------------
 
-    async def _download(self, url: str) -> str:
+    async def _download(self, url: str, spec_name: str = "") -> str:
         """Descarga con timeout explicito; traduce fallos transitorios a RetryableError."""
         await self._limiter.acquire()
         timeout = self._settings.http_timeout_seconds
@@ -195,6 +198,12 @@ class IcsSource:
                 response = await client.get(url)
         except httpx2.TimeoutException as exc:
             raise RetryableError(f"Timeout tras {timeout}s descargando el calendario") from exc
+        except httpx2.UnsupportedProtocol as exc:
+            # Una URL mal formada no se arregla reintentando: fallar rapido y claro.
+            raise SourceError(
+                f"La URL del calendario '{spec_name}' usa un protocolo que no se puede "
+                f"descargar ({exc}). Deberia empezar por https://."
+            ) from exc
         except httpx2.RequestError as exc:
             raise RetryableError(f"Error de red descargando el calendario: {exc}") from exc
 
@@ -227,7 +236,7 @@ class IcsSource:
         if spec.url is None:  # pragma: no cover - Settings ya lo garantiza
             raise SourceError(f"El calendario '{spec.name}' no tiene ni url ni fichero.")
         return await with_retry(
-            lambda: self._download(spec.url or ""),
+            lambda: self._download(spec.url or "", spec.name),
             attempts=self._settings.http_max_attempts,
             base_delay=self._settings.http_backoff_base_seconds,
         )

@@ -36,8 +36,8 @@ Romperlos es el unico motivo real para rechazar un PR aqui.
   `cas.py`. Leelos antes de tocarlos; no estan documentadas en ningun sitio publico.
 - PoliformaT NO permite login por API: solo CAS. Un login rechazado no se reintenta
   **nunca**, porque bloquea la cuenta.
-- Los examenes no los cubre ninguna fuente. No inventes heuristicas por titulo: hay
-  tareas llamadas "Examen" que no lo son, y examenes que no son tarea.
+- Los examenes vienen de su propio iCal (opcional). Nunca los deduzcas del titulo
+  de una tarea: hay tareas llamadas "Examen" que no lo son, y al reves.
 
 ## Convenciones de tools
 
@@ -60,5 +60,5 @@ Procedimiento completo: `.claude/skills/add-mcp-tool/SKILL.md`.
 
 ## Estado
 
-v1: `.ics` + PoliformaT via API REST de Sakai. Pendiente: calendario de examenes
-de la UPV (ver `PLAN.md`).
+v1 completa: horarios y examenes por `.ics`, y PoliformaT via la API REST de Sakai.
+Sin huecos de cobertura declarados (ver `PLAN.md`).

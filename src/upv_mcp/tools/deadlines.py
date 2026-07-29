@@ -15,11 +15,11 @@ from upv_mcp.repository import AcademicRepository
 from upv_mcp.tools.common import build_meta, horizon_bounds
 
 DESCRIPTION = """\
-Devuelve las ENTREGAS de PoliformaT con fecha limite proxima, de la mas cercana a \
-la mas lejana, con su estado de entrega y su nota si ya esta corregida.
+Devuelve las FECHAS LIMITE proximas -- entregas de PoliformaT y examenes -- de la \
+mas cercana a la mas lejana, con su estado de entrega y su nota si esta corregida.
 
-USALA para: "tengo alguna entrega esta semana", "que me queda por entregar", \
-"que se me viene encima", "me han puesto ya la nota de la practica 2".
+USALA para: "tengo alguna entrega esta semana", "cuando es mi proximo examen", \
+"que me queda por entregar", "me han puesto ya la nota de la practica 2".
 
 NO LA USES:
 - Para clases -> usa get_schedule (con fechas) o get_next_class (lo inmediato). \
@@ -44,13 +44,13 @@ Lo de estado unknown queda fuera de este filtro a proposito.
 - course: filtra por asignatura. Acepta codigo ("14537"), nombre o parte de el \
 ("vision") o siglas ("VC"). Usalo cuando nombren una asignatura.
 
-EXAMENES: NO tienes acceso al calendario de examenes de la UPV. En PoliformaT hay \
-tareas tituladas "Examen" que no lo son, y examenes que no son tarea, asi que no se \
-clasifican. Si preguntan por examenes, di que no puedes verlos; NO deduzcas que no \
-tiene ninguno.
+EXAMENES: cada elemento trae `kind` ("exam" o "assignment"). Los examenes salen de \
+un calendario aparte que es OPCIONAL: si no esta configurado no habra ninguno, y \
+meta.coverage_note lo dira. Las tareas de PoliformaT nunca se cuentan como examen \
+aunque se titulen "Examen parcial".
 
-Lee meta.coverage_note antes de responder. Una lista vacia con days_back=0 significa \
-que no hay entregas proximas, normal en vacaciones o entre cursos.\
+Lee meta.coverage_note antes de responder: si avisa de algo, trasladalo y NO \
+deduzcas que al usuario no le falta nada. Si no avisa, la lista esta completa.\
 """
 
 #: Horizonte por defecto. Dos semanas cubre la pregunta tipica sin inundar contexto.

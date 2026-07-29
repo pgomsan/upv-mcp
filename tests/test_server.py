@@ -91,9 +91,13 @@ def test_la_tool_de_deadlines_no_promete_examenes() -> None:
     son tarea. La descripcion debe impedir que el modelo deduzca lo que no sabe.
     """
     texto = deadlines_tool.DESCRIPTION
-    assert "no puedes verlos" in texto
-    assert "NO deduzcas que no tiene ninguno" in texto
+    # El calendario de examenes es opcional: la descripcion no puede dar por hecho
+    # que se ven, ni dejar que el modelo concluya que no hay ninguno si no se ven.
+    assert "OPCIONAL" in texto
+    assert "NO deduzcas" in texto
     assert "coverage_note" in texto
+    # Y las tareas de PoliformaT no se convierten en examenes por su titulo.
+    assert "nunca se cuentan como examen" in texto
 
 
 def test_la_tool_de_deadlines_distingue_desconocido_de_no_entregado() -> None:

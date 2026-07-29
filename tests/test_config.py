@@ -80,3 +80,26 @@ def test_llavero_ausente_no_rompe(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
 
     settings = load_settings()
     assert settings.schedule_ics_file == tmp_path / "h.ics"
+
+
+def test_normaliza_webcal_a_https() -> None:
+    """La intranet de la UPV entrega el enlace de examenes como webcal://.
+
+    Es https:// con otro nombre, pero ningun cliente HTTP lo entiende: sin
+    normalizar, la descarga fallaba con "unsupported protocol" y ademas se
+    reintentaba tres veces un error que no se arregla solo.
+    """
+    settings = Settings(exams_ics_url="webcal://www.upv.es/ical/TOKEN")
+
+    assert settings.calendars[0].url == "https://www.upv.es/ical/TOKEN"
+
+
+def test_normaliza_webcals_y_respeta_https() -> None:
+    assert (
+        Settings(schedule_ics_url="WEBCALS://x.upv.es/a.ics").calendars[0].url
+        == "https://x.upv.es/a.ics"
+    )
+    assert (
+        Settings(schedule_ics_url="https://x.upv.es/a.ics").calendars[0].url
+        == "https://x.upv.es/a.ics"
+    )

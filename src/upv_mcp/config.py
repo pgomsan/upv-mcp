@@ -14,7 +14,7 @@ import os
 from pathlib import Path
 from typing import Final
 
-from pydantic import BaseModel, Field, SecretStr, model_validator
+from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 APP_NAME: Final = "upv-mcp"
@@ -83,11 +83,29 @@ def delete_secret(key: str) -> None:
 
 
 class CalendarSpec(BaseModel):
-    """Un calendario a ingerir. La v0 admite varios: horario y, si existe, examenes."""
+    """Un calendario a ingerir. Admite varios: horario y, si existe, examenes."""
 
     name: str = Field(description="Identificador corto, p.ej. 'schedule' o 'exams'.")
     url: str | None = None
     path: Path | None = None
+
+    @field_validator("url")
+    @classmethod
+    def _normalizar_esquema(cls, valor: str | None) -> str | None:
+        """`webcal://` es `https://` con otro nombre.
+
+        Es el esquema que dan los botones de "Suscribirse" de los calendarios, y
+        el que ofrece la intranet de la UPV. Ningun cliente HTTP lo entiende, asi
+        que se traduce aqui y no en cada sitio que descargue.
+        """
+        if valor is None:
+            return None
+        limpio = valor.strip()
+        if limpio.lower().startswith("webcal://"):
+            return "https://" + limpio[len("webcal://") :]
+        if limpio.lower().startswith("webcals://"):
+            return "https://" + limpio[len("webcals://") :]
+        return limpio
 
     @property
     def origin(self) -> str:
