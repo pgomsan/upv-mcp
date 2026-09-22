@@ -102,3 +102,16 @@ CREATE TABLE IF NOT EXISTS course_sites (
     course_acronym TEXT,
     calendar       TEXT NOT NULL
 );
+
+-- migration:5  estado de cada evento del .ics de entregas publicado (export_ics.py).
+-- Guarda el SEQUENCE que ya han visto los clientes suscritos: un iPhone ignora un
+-- evento con SEQUENCE menor que el que tiene cacheado. Las fechas van en ISO 8601
+-- CON offset; una fecha sin zona aqui es un bug y se rechaza al leer.
+CREATE TABLE IF NOT EXISTS ics_event_state (
+    uid           TEXT PRIMARY KEY,
+    due           TEXT NOT NULL,
+    summary       TEXT NOT NULL,
+    sequence      INTEGER NOT NULL,
+    last_modified TEXT NOT NULL,
+    retired_at    TEXT
+);

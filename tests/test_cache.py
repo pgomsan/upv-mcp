@@ -2,13 +2,21 @@
 
 from __future__ import annotations
 
+import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from upv_mcp.cache.db import SCHEMA_VERSION, CacheRepository, connect
 from upv_mcp.config import Settings
-from upv_mcp.models import Assignment, Course, EventKind, SourceName
+from upv_mcp.models import (
+    Assignment,
+    Course,
+    EventKind,
+    SourceName,
+    Submission,
+    SubmissionStatus,
+)
 from upv_mcp.sources.ics import IcsSource
 
 MADRID = ZoneInfo("Europe/Madrid")
@@ -263,3 +271,67 @@ def test_sin_examenes_el_horizonte_de_examenes_es_desconocido(
     cache.replace_calendar("schedule", payload.sessions)
 
     assert cache.latest_known_session(EventKind.EXAM) is None
+
+
+def test_migracion_5_crea_el_estado_del_feed_en_una_base_v4(tmp_path: Path) -> None:
+    db = tmp_path / "v4.db"
+    conn = connect(db)
+    conn.execute("DROP TABLE ics_event_state")
+    conn.execute("PRAGMA user_version = 4")
+    conn.commit()
+    conn.close()
+
+    conn = connect(db)
+    columnas = [f["name"] for f in conn.execute("PRAGMA table_info(ics_event_state)")]
+    assert columnas == ["uid", "due", "summary", "sequence", "last_modified", "retired_at"]
+    assert int(conn.execute("PRAGMA user_version").fetchone()[0]) == SCHEMA_VERSION
+    conn.close()
+
+
+def test_las_fechas_de_las_entregas_nunca_pierden_la_zona(
+    cache: CacheRepository, tmp_path: Path, examenes_ics: Path, settings: Settings
+) -> None:
+    """Ida y vuelta por SQLite de todo datetime de una entrega.
+
+    `_iso_utc` y `_from_iso` usan `astimezone`, que sobre un naive asume la zona
+    del sistema SIN avisar. Por eso se comprueba en los tres puntos: lo que sale
+    del parser, el texto en disco y lo que se lee.
+    """
+    payload = IcsSource(settings).parse(examenes_ics.read_text(encoding="utf-8"), "exams")
+    assert payload.assignments
+    for examen in payload.assignments:
+        assert examen.due.tzinfo is not None, "el parser produjo una fecha sin zona"
+
+    entrega = Assignment(
+        uid="poliformat:assignment:x",
+        kind=EventKind.ASSIGNMENT,
+        title="Practica",
+        course=Course(code="14534", name="ICD"),
+        due=datetime(2026, 12, 1, 0, 30, tzinfo=MADRID),
+        source=SourceName.POLIFORMAT,
+        submission=Submission(
+            status=SubmissionStatus.SUBMITTED,
+            submitted_at=datetime(2026, 11, 30, 22, 0, tzinfo=MADRID),
+        ),
+    )
+    cache.replace_calendar("exams", [], payload.assignments)
+    cache.replace_calendar("poliformat", [], [entrega])
+
+    crudo = sqlite3.connect(tmp_path / "cache.db")
+    filas = crudo.execute("SELECT due_utc, submitted_at FROM assignments").fetchall()
+    crudo.close()
+    for due, submitted_at in filas:
+        assert datetime.fromisoformat(due).tzinfo is not None, due
+        if submitted_at is not None:
+            assert datetime.fromisoformat(submitted_at).tzinfo is not None, submitted_at
+
+    leidas = cache.assignments_between(
+        datetime(2020, 1, 1, tzinfo=MADRID), datetime(2030, 1, 1, tzinfo=MADRID)
+    )
+    assert len(leidas) == len(filas)
+    for leida in leidas:
+        assert leida.due.tzinfo is not None
+    leida = next(a for a in leidas if a.uid == entrega.uid)
+    assert leida.due == entrega.due
+    assert leida.submission is not None
+    assert leida.submission.submitted_at == datetime(2026, 11, 30, 22, 0, tzinfo=MADRID)

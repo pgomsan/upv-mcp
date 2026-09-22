@@ -3,8 +3,14 @@
 Pensado para suscribirse desde el movil: cada entrega pendiente aparece como un
 evento de todo el dia en su fecha limite, con la hora real en el titulo.
 
-Es una funcion pura: recibe los modelos ya normalizados y devuelve el texto. No
-toca red, cache ni ficheros, y no sabe nada de MCP.
+Recibe los modelos ya normalizados y devuelve el texto. No toca red, cache ni
+ficheros, y no sabe nada de MCP. Lo unico con memoria es el `EventStateStore` que
+se le pase: la implementacion SQLite vive en ics_state.py, fuera de este modulo.
+
+SEQUENCE y LAST-MODIFIED (RFC 5545 3.8.7): un cliente suscrito solo acepta la
+nueva version de un evento si su SEQUENCE es MAYOR que la que ya tiene. Por eso el
+estado de cada UID se recuerda entre pasadas y nunca se reinicia: ni cuando la
+entrega deja de publicarse (se marca como retirada) ni cuando vuelve.
 
 Se escribe a mano, sin `icalendar`, porque lo que importa aqui son los bytes
 exactos: un cliente suscrito compara por UID y el golden test compara byte a byte.
@@ -19,7 +25,9 @@ Las tres reglas de RFC 5545 que hay que respetar a mano:
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
+from typing import Protocol
 from zoneinfo import ZoneInfo
 
 from upv_mcp.models import Assignment, EventKind, SubmissionStatus
@@ -49,21 +57,64 @@ DESCRIPCIONES: dict[str, str] = {}
 PRODID = "-//upv-mcp//Entregas UPV//ES"
 CALNAME = "Entregas UPV"
 
+#: Cuanto se conserva la fila de un evento retirado antes de borrarla. Mientras
+#: exista, si la entrega reaparece continua su SEQUENCE en vez de volver a 0.
+PURGA_RETIRADOS = timedelta(days=180)
+
 _TZ = ZoneInfo("Europe/Madrid")
 _MAX_OCTETOS = 75
 _CRLF = "\r\n"
 
 
-def build_calendar(deadlines: Sequence[Assignment], *, now: datetime) -> str:
+@dataclass(frozen=True)
+class EventState:
+    """Lo ultimo que se publico de un evento, identificado por su UID completo."""
+
+    uid: str
+    due: datetime
+    summary: str
+    sequence: int
+    last_modified: datetime
+    retired_at: datetime | None = None
+
+    def __post_init__(self) -> None:
+        # Una fecha sin zona aqui acabaria en ValueError dentro de build_calendar,
+        # de madrugada y en un log de launchd. Mejor reventar donde se crea.
+        for campo in ("due", "last_modified", "retired_at"):
+            valor = getattr(self, campo)
+            if valor is not None and valor.tzinfo is None:
+                raise ValueError(f"EventState.{campo} de {self.uid} no lleva zona horaria.")
+
+
+class EventStateStore(Protocol):
+    """Almacen del estado de los eventos. Solo guarda: la politica esta aqui."""
+
+    def get(self, uid: str) -> EventState | None: ...
+    def put(self, state: EventState) -> None: ...
+    def all(self) -> Sequence[EventState]: ...
+    def delete(self, uid: str) -> None: ...
+
+
+def build_calendar(
+    deadlines: Sequence[Assignment],
+    *,
+    now: datetime,
+    state: EventStateStore | None = None,
+) -> str:
     """Devuelve un VCALENDAR con un evento de todo el dia por entrega publicable.
 
-    `now` solo se usa para DTSTAMP: con el mismo `now` y los mismos datos, la salida
-    es identica byte a byte. Los eventos se ordenan por fecha limite y uid, asi que
-    tampoco depende del orden de entrada.
+    `now` es el DTSTAMP y, cuando algo cambia, el LAST-MODIFIED. Con el mismo `now`,
+    los mismos datos y el mismo estado, la salida es identica byte a byte. Los
+    eventos se ordenan por fecha limite y uid: no depende del orden de entrada.
+
+    Sin `state`, todo sale con SEQUENCE 0 y LAST-MODIFIED = now, y no se guarda
+    nada. Con `state`, cada evento conserva su SEQUENCE mientras no cambie, y los
+    que dejan de publicarse se retiran (y se purgan a los `PURGA_RETIRADOS`).
     """
     if now.tzinfo is None:
         raise ValueError("now debe llevar zona horaria.")
-    dtstamp = now.astimezone(UTC).strftime("%Y%m%dT%H%M%SZ")
+    ahora = now.astimezone(UTC)
+    dtstamp = _utc(ahora)
 
     lineas = [
         "BEGIN:VCALENDAR",
@@ -78,9 +129,17 @@ def build_calendar(deadlines: Sequence[Assignment], *, now: datetime) -> str:
         (a for a in deadlines if a.kind is EventKind.ASSIGNMENT and _debe_publicarse(a)),
         key=lambda a: (a.due, a.uid),
     )
+    publicados: set[str] = set()
     for entrega in publicables:
-        lineas.extend(_vevent(entrega, dtstamp))
+        uid = _uid(entrega)
+        if uid in publicados:
+            continue  # Dos eventos con el mismo UID en un feed confunden al cliente.
+        publicados.add(uid)
+        lineas.extend(_vevent(entrega, dtstamp, state, ahora))
     lineas.append("END:VCALENDAR")
+
+    if state is not None:
+        _retirar_y_purgar(state, publicados, ahora)
 
     return "".join(_plegar(linea) + _CRLF for linea in lineas)
 
@@ -99,7 +158,17 @@ def _debe_publicarse(assignment: Assignment) -> bool:
     return not (entrega.status is SubmissionStatus.SUBMITTED or entrega.graded)
 
 
-def _vevent(entrega: Assignment, dtstamp: str) -> list[str]:
+def _uid(entrega: Assignment) -> str:
+    return f"{entrega.uid}@{UID_DOMAIN}"
+
+
+def _utc(instante: datetime) -> str:
+    return instante.astimezone(UTC).strftime("%Y%m%dT%H%M%SZ")
+
+
+def _vevent(
+    entrega: Assignment, dtstamp: str, state: EventStateStore | None, ahora: datetime
+) -> list[str]:
     if entrega.due.tzinfo is None:
         raise ValueError(f"La fecha limite de {entrega.uid} no lleva zona horaria.")
     local = entrega.due.astimezone(_TZ)
@@ -107,11 +176,15 @@ def _vevent(entrega: Assignment, dtstamp: str) -> list[str]:
 
     descripcion = DESCRIPCIONES.get(entrega.uid, entrega.title)
     resumen = f"Entrega {_etiqueta(entrega)} ({descripcion}) - {local:%H:%M}"
+    uid = _uid(entrega)
+    sequence, last_modified = _version(state, uid, entrega.due, resumen, ahora)
 
     lineas = [
         "BEGIN:VEVENT",
-        f"UID:{_escapar(f'{entrega.uid}@{UID_DOMAIN}')}",
+        f"UID:{_escapar(uid)}",
         f"DTSTAMP:{dtstamp}",
+        f"LAST-MODIFIED:{_utc(last_modified)}",
+        f"SEQUENCE:{sequence}",
         f"DTSTART;VALUE=DATE:{dia:%Y%m%d}",
         f"DTEND;VALUE=DATE:{dia + timedelta(days=1):%Y%m%d}",
         f"SUMMARY:{_escapar(resumen)}",
@@ -120,6 +193,43 @@ def _vevent(entrega: Assignment, dtstamp: str) -> list[str]:
         lineas.append(f"DESCRIPTION:{_escapar(entrega.url)}")
     lineas.extend(["TRANSP:TRANSPARENT", "END:VEVENT"])
     return lineas
+
+
+def _version(
+    state: EventStateStore | None, uid: str, due: datetime, summary: str, ahora: datetime
+) -> tuple[int, datetime]:
+    """SEQUENCE y LAST-MODIFIED de un evento, guardando el estado si cambia.
+
+    Solo se escribe cuando hay algo nuevo: una pasada sin cambios no toca el store.
+    Un evento retirado que reaparece continua su SEQUENCE; nunca vuelve a 0, porque
+    un cliente que aun lo tenga cacheado ignoraria la version "vieja".
+    """
+    if state is None:
+        return 0, ahora
+    previo = state.get(uid)
+    if previo is None:
+        sequence = 0
+    elif previo.retired_at is None and previo.due == due and previo.summary == summary:
+        return previo.sequence, previo.last_modified
+    else:
+        sequence = previo.sequence + 1
+    state.put(EventState(uid, due, summary, sequence, ahora))
+    return sequence, ahora
+
+
+def _retirar_y_purgar(state: EventStateStore, publicados: set[str], ahora: datetime) -> None:
+    """Marca como retirado lo que ya no se publica y purga lo retirado hace mucho.
+
+    La fila no se borra al retirar: si la entrega reaparece (p.ej. el profesor
+    reabre el plazo), su SEQUENCE tiene que continuar donde lo dejo.
+    """
+    for estado in state.all():
+        if estado.uid in publicados:
+            continue
+        if estado.retired_at is None:
+            state.put(replace(estado, retired_at=ahora))
+        elif ahora - estado.retired_at > PURGA_RETIRADOS:
+            state.delete(estado.uid)
 
 
 def _etiqueta(entrega: Assignment) -> str:

@@ -33,7 +33,20 @@ from upv_mcp.models import (
 )
 
 #: Version de esquema que espera este codigo. Subirla obliga a anadir migracion.
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
+
+#: Migracion 5: estado de los eventos del .ics de entregas publicado (SEQUENCE y
+#: LAST-MODIFIED que ya han visto los clientes suscritos). Ver ics_state.py.
+_MIGRACION_5 = """
+CREATE TABLE IF NOT EXISTS ics_event_state (
+    uid           TEXT PRIMARY KEY,
+    due           TEXT NOT NULL,
+    summary       TEXT NOT NULL,
+    sequence      INTEGER NOT NULL,
+    last_modified TEXT NOT NULL,
+    retired_at    TEXT
+);
+"""
 
 #: Migracion 4: asignaturas de PoliformaT y su sitio de Sakai. Permite pedir los
 #: materiales de una sola asignatura en vez de los de todas.
@@ -141,6 +154,8 @@ def migrate(conn: sqlite3.Connection) -> None:
             _anadir_columnas(conn, "assignments", _COLUMNAS_3)
         if current < 4:
             conn.executescript(_MIGRACION_4)
+        if current < 5:
+            conn.executescript(_MIGRACION_5)
 
         # Una migracion suele anadir datos que las descargas anteriores no
         # guardaron (tablas nuevas, columnas nuevas). Si se deja la cache marcada
