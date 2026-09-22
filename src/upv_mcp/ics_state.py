@@ -1,8 +1,10 @@
 """Estado de los eventos del .ics de entregas, persistido en la cache SQLite.
 
 Implementa `EventStateStore` (export_ics.py) sobre la tabla `ics_event_state`, que
-crea la migracion 5 de cache/db.py. Aqui solo se guarda y se lee: cuando sube el
-SEQUENCE, cuando se retira una fila y cuando se purga lo decide export_ics.py.
+crea la migracion 5 de cache/db.py, y guarda el hash de la ultima subida del feed
+(`ics_feed_upload`, migracion 6) para que upv-publish no resuba lo mismo. Aqui solo
+se guarda y se lee: cuando sube el SEQUENCE, cuando se retira una fila y cuando se
+purga lo decide export_ics.py.
 
 Fechas: texto ISO 8601 CON offset. Una fecha sin zona no se guarda ni se devuelve
 nunca: se lanza ValueError en el acto. `datetime.fromisoformat` acepta texto sin
@@ -88,6 +90,21 @@ class SqliteEventStateStore:
     def delete(self, uid: str) -> None:
         with self._conn:
             self._conn.execute("DELETE FROM ics_event_state WHERE uid = ?", (uid,))
+
+    # -- Ultima subida (upv-publish) ------------------------------------------------
+
+    def last_uploaded_sha256(self, feed: str) -> str | None:
+        fila = self._conn.execute(
+            "SELECT sha256 FROM ics_feed_upload WHERE feed = ?", (feed,)
+        ).fetchone()
+        return None if fila is None else str(fila["sha256"])
+
+    def record_upload(self, feed: str, sha256: str, uploaded_at: datetime) -> None:
+        with self._conn:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO ics_feed_upload (feed, sha256, uploaded_at) VALUES (?,?,?)",
+                (feed, sha256, _a_texto(uploaded_at, "uploaded_at", utc=True)),
+            )
 
 
 def _estado(fila: sqlite3.Row) -> EventState:

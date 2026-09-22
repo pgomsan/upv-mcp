@@ -53,6 +53,15 @@ class AcademicRepository:
         return datetime.now(self._tz)
 
     @property
+    def poliformat_configured(self) -> bool:
+        return self._poliformat is not None
+
+    @property
+    def poliformat_failed(self) -> bool:
+        """True si el ultimo refresco de PoliformaT fallo (se sirve cache antigua)."""
+        return self._poliformat_failed
+
+    @property
     def serving_stale(self) -> bool:
         """True si la ultima respuesta se sirvio sin poder refrescar."""
         return self._last_refresh_failed

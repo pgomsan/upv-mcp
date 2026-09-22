@@ -126,7 +126,7 @@ def build_calendar(
         "X-PUBLISHED-TTL:PT1H",
     ]
     publicables = sorted(
-        (a for a in deadlines if a.kind is EventKind.ASSIGNMENT and _debe_publicarse(a)),
+        (a for a in deadlines if _debe_publicarse(a)),
         key=lambda a: (a.due, a.uid),
     )
     publicados: set[str] = set()
@@ -144,18 +144,29 @@ def build_calendar(
     return "".join(_plegar(linea) + _CRLF for linea in lineas)
 
 
-def _debe_publicarse(assignment: Assignment) -> bool:
-    """Lista de exclusion: fuera lo entregado y lo ya corregido; todo lo demas entra.
+def motivo_exclusion(assignment: Assignment) -> str | None:
+    """Por que una fecha limite NO sale en el feed, o None si sale.
 
-    Sin submission o con estado "unknown" se publica: no saber si esta hecha no es
-    motivo para esconder la fecha. Lo corregido se excluye aunque el estado diga
-    "not_submitted" (PoliformaT produce esa contradiccion): una tarea con nota esta
-    cerrada.
+    Lista de exclusion: fuera los examenes, lo entregado y lo ya corregido; todo lo
+    demas entra. Sin submission o con estado "unknown" se publica: no saber si esta
+    hecha no es motivo para esconder la fecha. Lo corregido se excluye aunque el
+    estado diga "not_submitted" (PoliformaT produce esa contradiccion): una tarea
+    con nota esta cerrada.
     """
+    if assignment.kind is not EventKind.ASSIGNMENT:
+        return "examen"
     entrega = assignment.submission
     if entrega is None:
-        return True
-    return not (entrega.status is SubmissionStatus.SUBMITTED or entrega.graded)
+        return None
+    if entrega.status is SubmissionStatus.SUBMITTED:
+        return "entregada"
+    if entrega.graded:
+        return "corregida"
+    return None
+
+
+def _debe_publicarse(assignment: Assignment) -> bool:
+    return motivo_exclusion(assignment) is None
 
 
 def _uid(entrega: Assignment) -> str:

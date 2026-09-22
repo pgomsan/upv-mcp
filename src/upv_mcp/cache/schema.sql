@@ -115,3 +115,11 @@ CREATE TABLE IF NOT EXISTS ics_event_state (
     last_modified TEXT NOT NULL,
     retired_at    TEXT
 );
+
+-- migration:6  ultima subida del feed (upv-publish): si el contenido no cambia, no
+-- se vuelve a subir.
+CREATE TABLE IF NOT EXISTS ics_feed_upload (
+    feed        TEXT PRIMARY KEY,
+    sha256      TEXT NOT NULL,
+    uploaded_at TEXT NOT NULL
+);

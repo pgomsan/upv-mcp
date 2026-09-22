@@ -62,3 +62,7 @@ Procedimiento completo: `.claude/skills/add-mcp-tool/SKILL.md`.
 
 v1 completa: horarios y examenes por `.ics`, y PoliformaT via la API REST de Sakai.
 Sin huecos de cobertura declarados (ver `PLAN.md`).
+
+Hay un segundo entrypoint ademas del servidor MCP: `upv-publish` (`publish.py`), que sube el .ics de entregas al Worker de `worker/`.
+`horario.ics` es ENTRADA y no se toca nunca; `build/entregas.ics` es SALIDA.
+El publicador nunca escribe en la raiz del repo: solo en `build/`.

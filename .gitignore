@@ -11,6 +11,13 @@
 secrets.json
 config.local.toml
 
+# Secretos locales del Worker. La salida de upv-publish (build/entregas.ics) ya la
+# cubren *.ics y build/ (mas abajo, en Python).
+worker/.dev.vars
+worker/node_modules/
+worker/.wrangler/
+worker/worker-configuration.d.ts
+
 # Python
 __pycache__/
 *.py[cod]

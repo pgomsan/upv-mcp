@@ -33,7 +33,16 @@ from upv_mcp.models import (
 )
 
 #: Version de esquema que espera este codigo. Subirla obliga a anadir migracion.
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
+
+#: Migracion 6: hash de la ultima subida del feed, para no resubir lo mismo.
+_MIGRACION_6 = """
+CREATE TABLE IF NOT EXISTS ics_feed_upload (
+    feed        TEXT PRIMARY KEY,
+    sha256      TEXT NOT NULL,
+    uploaded_at TEXT NOT NULL
+);
+"""
 
 #: Migracion 5: estado de los eventos del .ics de entregas publicado (SEQUENCE y
 #: LAST-MODIFIED que ya han visto los clientes suscritos). Ver ics_state.py.
@@ -156,6 +165,8 @@ def migrate(conn: sqlite3.Connection) -> None:
             conn.executescript(_MIGRACION_4)
         if current < 5:
             conn.executescript(_MIGRACION_5)
+        if current < 6:
+            conn.executescript(_MIGRACION_6)
 
         # Una migracion suele anadir datos que las descargas anteriores no
         # guardaron (tablas nuevas, columnas nuevas). Si se deja la cache marcada

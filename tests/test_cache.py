@@ -273,10 +273,11 @@ def test_sin_examenes_el_horizonte_de_examenes_es_desconocido(
     assert cache.latest_known_session(EventKind.EXAM) is None
 
 
-def test_migracion_5_crea_el_estado_del_feed_en_una_base_v4(tmp_path: Path) -> None:
+def test_migraciones_5_y_6_crean_las_tablas_del_feed_en_una_base_v4(tmp_path: Path) -> None:
     db = tmp_path / "v4.db"
     conn = connect(db)
     conn.execute("DROP TABLE ics_event_state")
+    conn.execute("DROP TABLE ics_feed_upload")
     conn.execute("PRAGMA user_version = 4")
     conn.commit()
     conn.close()
@@ -284,6 +285,8 @@ def test_migracion_5_crea_el_estado_del_feed_en_una_base_v4(tmp_path: Path) -> N
     conn = connect(db)
     columnas = [f["name"] for f in conn.execute("PRAGMA table_info(ics_event_state)")]
     assert columnas == ["uid", "due", "summary", "sequence", "last_modified", "retired_at"]
+    subida = [f["name"] for f in conn.execute("PRAGMA table_info(ics_feed_upload)")]
+    assert subida == ["feed", "sha256", "uploaded_at"]
     assert int(conn.execute("PRAGMA user_version").fetchone()[0]) == SCHEMA_VERSION
     conn.close()
 
