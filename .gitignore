@@ -1,6 +1,8 @@
 # Datos personales y secretos: NUNCA se commitean
 *.ics
 !tests/fixtures/*.ics
+# Golden sintetico del generador (tests/test_export_ics.py); solo este fichero.
+!tests/data/export_ics_golden.ics
 .env
 .env.*
 *.db

@@ -48,3 +48,14 @@ def settings(tmp_path: Path, horario_ics: Path) -> Settings:
 def cache(tmp_path: Path) -> Iterator[CacheRepository]:
     with CacheRepository(tmp_path / "cache.db") as repo:
         yield repo
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    # Regenerar un golden tiene que ser una decision explicita, nunca un efecto de
+    # que el test falle: si no, un cambio accidental se "arregla" solo.
+    parser.addoption(
+        "--update-golden",
+        action="store_true",
+        default=False,
+        help="Reescribe los golden files de tests/data/ en vez de compararlos.",
+    )
