@@ -174,6 +174,26 @@ async def test_deadlines_devuelve_examenes_si_hay_calendario(
         )
 
 
+async def test_los_examenes_no_cuentan_como_entregas_sin_estado(
+    tmp_path: Path, horario_ics: Path, examenes_ics: Path
+) -> None:
+    """Regresion: 10 examenes salian como "10 de las entregas no traen estado".
+
+    Un examen del .ics nunca tiene submission, y eso no es un dato que falte.
+    """
+    settings = Settings(
+        schedule_ics_file=horario_ics,
+        exams_ics_file=examenes_ics,
+        data_dir=tmp_path / "d",
+    )
+    with CacheRepository(settings.db_path) as cache:
+        repo = _repo_en(settings, cache, datetime(2026, 1, 1, tzinfo=MADRID))
+        resultado = await list_upcoming_deadlines(repo, 60, limit=50)
+
+        assert {d.kind for d in resultado.deadlines} == {EventKind.EXAM}
+        assert "no traen estado de entrega" not in (resultado.meta.coverage_note or "")
+
+
 async def test_deadlines_valida_el_horizonte(repo: AcademicRepository) -> None:
     with pytest.raises(ValueError, match="entre 1 y 365"):
         await list_upcoming_deadlines(repo, 0, limit=50)
@@ -365,7 +385,7 @@ async def test_sin_filtro_devuelve_todas_y_avisa_de_las_desconocidas(
     resultado = await list_upcoming_deadlines(repo, 30, limit=50)
 
     assert len(resultado.deadlines) == 4
-    assert "no traen estado de entrega" in (resultado.meta.coverage_note or "")
+    assert "1 de las entregas listadas no traen estado" in (resultado.meta.coverage_note or "")
 
 
 async def test_el_estado_sobrevive_a_la_cache(settings: Settings, cache: CacheRepository) -> None:

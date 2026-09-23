@@ -14,7 +14,7 @@ traduce en tres avisos distintos en `meta.coverage_note`:
 
 from __future__ import annotations
 
-from upv_mcp.models import DeadlinesResult, SubmissionStatus
+from upv_mcp.models import DeadlinesResult, EventKind, SubmissionStatus
 from upv_mcp.repository import AcademicRepository
 from upv_mcp.tools.common import build_meta, horizon_bounds
 
@@ -109,10 +109,14 @@ async def list_upcoming_deadlines(
             "significa que no haya nada: significa que aun no se ha publicado."
         )
 
+    # Solo las ENTREGAS pueden tener estado desconocido. Un examen del .ics nunca
+    # trae submission y no le falta ningun dato: contarlo aqui avisaba de "10
+    # entregas sin estado" cuando eran 10 examenes.
     desconocidas = sum(
         1
         for a in deadlines
-        if a.submission is None or a.submission.status is SubmissionStatus.UNKNOWN
+        if a.kind is EventKind.ASSIGNMENT
+        and (a.submission is None or a.submission.status is SubmissionStatus.UNKNOWN)
     )
     avisos = [aviso_horizonte] if aviso_horizonte else []
     if desconocidas:
