@@ -11,7 +11,8 @@ from upv_mcp.cache.db import CacheRepository
 from upv_mcp.config import CalendarSpec, Settings
 from upv_mcp.models import Course, Material
 from upv_mcp.repository import AcademicRepository
-from upv_mcp.sources.base import SourceError, SourcePayload
+from upv_mcp.sources.base import RetryableError, SourceError, SourcePayload
+from upv_mcp.sources.cas import CasAccountLocked, CasCredentialsRejected
 from upv_mcp.sources.extract import ExtractionError
 from upv_mcp.sources.ics import IcsSource
 
@@ -270,3 +271,67 @@ async def test_un_formato_ilegible_trae_la_url_de_descarga(
 
     assert material.url in str(info.value)
     assert "application/zip" in str(info.value), "el motivo original no se pierde"
+
+
+class _PoliformatQueRechaza:
+    """PoliformaT cuyo login falla con `error`, contando los intentos."""
+
+    def __init__(self, error: SourceError) -> None:
+        self.error = error
+        self.llamadas = 0
+
+    @property
+    def name(self) -> str:
+        return "poliformat"
+
+    async def fetch(self, *, force_refresh: bool = False) -> SourcePayload:
+        self.llamadas += 1
+        raise self.error
+
+    async def fetch_materials(self, site_id: str, course: Course) -> list[Material]:
+        self.llamadas += 1
+        raise self.error
+
+
+@pytest.mark.parametrize(
+    "error",
+    [CasCredentialsRejected("rechazadas"), CasAccountLocked("bloqueada")],
+    ids=["credenciales", "cuenta-bloqueada"],
+)
+async def test_un_login_rechazado_no_se_repite_ni_en_otro_proceso(
+    settings: Settings, cache: CacheRepository, error: SourceError
+) -> None:
+    """Regresion: upv-publish corre cada hora desde launchd, cada vez desde cero.
+
+    Sin un bloqueo persistente, repetiria el login rechazado 24 veces al dia hasta
+    que la UPV bloqueara la cuenta. Es el invariante de CLAUDE.md.
+    """
+    cache.replace_calendar("schedule", [], fetched_at=datetime.now(UTC))
+    primero = _PoliformatQueRechaza(error)
+    repo = AcademicRepository(settings, cache, poliformat=primero)  # type: ignore[arg-type]
+    await repo.ensure_fresh()
+    assert primero.llamadas == 1
+    assert settings.cas_lock_path.exists()
+
+    # "Otro proceso": repositorio nuevo, mismo disco, cache de PoliformaT caducada.
+    segundo = _PoliformatQueRechaza(error)
+    otro = AcademicRepository(settings, cache, poliformat=segundo)  # type: ignore[arg-type]
+    await otro.ensure_fresh(force=True)
+    assert await otro.ensure_materials("14534") is False
+    assert segundo.llamadas == 0, "con el bloqueo puesto no se toca CAS"
+    assert otro.poliformat_login_blocked
+    assert otro.poliformat_failed
+    assert "BLOQUEADO" in (otro.coverage_note() or "")
+
+
+async def test_un_fallo_de_red_no_bloquea_el_login(
+    settings: Settings, cache: CacheRepository
+) -> None:
+    cache.replace_calendar("schedule", [], fetched_at=datetime.now(UTC))
+    poliformat = _PoliformatQueRechaza(RetryableError("timeout"))
+    repo = AcademicRepository(settings, cache, poliformat=poliformat)  # type: ignore[arg-type]
+    await repo.ensure_fresh()
+
+    assert repo.poliformat_failed
+    assert not repo.poliformat_login_blocked
+    assert not settings.cas_lock_path.exists()

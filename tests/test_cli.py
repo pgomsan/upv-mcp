@@ -11,7 +11,7 @@ import io
 import pytest
 
 from upv_mcp import cli
-from upv_mcp.config import SCHEDULE_KEY
+from upv_mcp.config import SCHEDULE_KEY, Settings
 
 
 @pytest.fixture
@@ -98,3 +98,19 @@ def test_delete(llavero_falso: dict[str, str]) -> None:
 
     assert cli.main(["delete", "schedule"]) == 0
     assert SCHEDULE_KEY not in llavero_falso
+
+
+def test_credenciales_nuevas_quitan_el_bloqueo_de_cas(
+    llavero_falso: dict[str, str],
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    settings.cas_lock_path.parent.mkdir(parents=True, exist_ok=True)
+    settings.cas_lock_path.write_text("rechazado", encoding="utf-8")
+    monkeypatch.setattr(cli, "load_settings", lambda: settings)
+    monkeypatch.setattr("sys.stdin", io.StringIO("usuario\nclave-nueva\n"))
+
+    assert cli.main(["set", "poliformat"]) == 0
+    assert not settings.cas_lock_path.exists()
+    assert "Desbloqueado" in capsys.readouterr().out

@@ -119,6 +119,13 @@ async def obtener_deadlines(repo: AcademicRepository, days: int) -> list[Assignm
             "PoliformaT no esta configurado (`upv-mcp-config set poliformat`). "
             "No se publica: un feed vacio borraria los eventos del movil."
         )
+    if repo.poliformat_login_blocked:
+        raise PublishError(
+            "Login de PoliformaT BLOQUEADO: CAS rechazo las credenciales y no se "
+            "reintenta, ni en esta pasada ni en las siguientes, para no bloquear la "
+            "cuenta UPV. Revisalas con `upv-mcp-config set poliformat`; eso lo "
+            "desbloquea."
+        )
     if repo.poliformat_failed:
         raise PublishError(
             "PoliformaT no respondio en este refresco. No se publica con datos de "

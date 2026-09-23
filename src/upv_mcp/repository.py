@@ -9,16 +9,23 @@ INVARIANTE: no importa nada de `mcp`. Las tools reciben este objeto ya construid
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 from upv_mcp.cache.db import CacheRepository
 from upv_mcp.config import Settings
 from upv_mcp.models import Assignment, Material
 from upv_mcp.sources.base import SourceError
+from upv_mcp.sources.cas import CasAccountLocked, CasCredentialsRejected
 from upv_mcp.sources.extract import ExtractionError
 from upv_mcp.sources.ics import IcsSource
 from upv_mcp.sources.poliformat import PoliformatSource
+
+_AVISO_LOGIN_BLOQUEADO = (
+    "PoliformaT esta BLOQUEADO: CAS rechazo las credenciales y no se reintenta para "
+    "no bloquear la cuenta UPV. Las entregas que se muestran pueden estar "
+    "desactualizadas. Hay que revisarlas con `upv-mcp-config set poliformat`."
+)
 
 
 class AcademicRepository:
@@ -51,6 +58,27 @@ class AcademicRepository:
 
     def now(self) -> datetime:
         return datetime.now(self._tz)
+
+    @property
+    def poliformat_login_blocked(self) -> bool:
+        """True si CAS rechazo las credenciales en algun momento y no se han cambiado.
+
+        El bloqueo vive en un fichero (`Settings.cas_lock_path`), no en memoria: un
+        proceso que se lanza cada hora (upv-publish desde launchd) empieza de cero
+        cada vez, y sin esto repetiria el login rechazado 24 veces al dia hasta que
+        la UPV bloqueara la cuenta.
+        """
+        return self._settings.cas_lock_path.exists()
+
+    def _bloquear_login(self, error: SourceError) -> None:
+        ruta = self._settings.cas_lock_path
+        ruta.parent.mkdir(parents=True, exist_ok=True)
+        ruta.write_text(
+            f"{datetime.now(UTC).isoformat()} {type(error).__name__}\n"
+            "No se vuelve a intentar el login en PoliformaT hasta que cambies las "
+            "credenciales con `upv-mcp-config set poliformat`.\n",
+            encoding="utf-8",
+        )
 
     @property
     def poliformat_configured(self) -> bool:
@@ -110,8 +138,15 @@ class AcademicRepository:
         """
         if self._poliformat is None:
             return
+        if self.poliformat_login_blocked:
+            self._poliformat_failed = True
+            return
         try:
             payload = await self._poliformat.fetch()
+        except (CasCredentialsRejected, CasAccountLocked) as exc:
+            self._bloquear_login(exc)
+            self._poliformat_failed = True
+            return
         except (SourceError, OSError):
             self._poliformat_failed = True
             return
@@ -149,7 +184,7 @@ class AcademicRepository:
         Devuelve False si no se pudo consultar, para que quien renderiza pueda
         decirlo en vez de mostrar una lista vacia sin explicacion.
         """
-        if self._poliformat is None:
+        if self._poliformat is None or self.poliformat_login_blocked:
             return False
 
         clave = f"materials:{course_code}"
@@ -162,6 +197,10 @@ class AcademicRepository:
 
         try:
             materiales = await self._poliformat.fetch_materials(sitio.site_id, sitio.course)
+        except (CasCredentialsRejected, CasAccountLocked) as exc:
+            self._bloquear_login(exc)
+            self._poliformat_failed = True
+            return False
         except (SourceError, OSError):
             self._poliformat_failed = True
             return False
@@ -174,8 +213,13 @@ class AcademicRepository:
         """Descarga un material y devuelve `(texto, recortado)`."""
         if self._poliformat is None:
             raise SourceError("PoliformaT no esta configurado (`upv-mcp-config set poliformat`).")
+        if self.poliformat_login_blocked:
+            raise SourceError(_AVISO_LOGIN_BLOQUEADO)
         try:
             return await self._poliformat.fetch_material_text(material.url, material.title)
+        except (CasCredentialsRejected, CasAccountLocked) as exc:
+            self._bloquear_login(exc)
+            raise
         except ExtractionError as exc:
             # El extractor recibe bytes y un tipo MIME, asi que no puede saber de
             # donde salieron: decir "abrelo desde su URL" sin dar la URL deja al
@@ -220,6 +264,8 @@ class AcademicRepository:
                 "Las entregas de PoliformaT no estan configuradas "
                 "(`upv-mcp-config set poliformat`)."
             )
+        elif self.poliformat_login_blocked:
+            notes.append(_AVISO_LOGIN_BLOQUEADO)
         elif self._poliformat_failed:
             notes.append(
                 "No se pudo consultar PoliformaT en este refresco, asi que puede haber "

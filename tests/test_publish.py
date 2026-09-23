@@ -422,3 +422,19 @@ async def test_sin_poliformat_no_se_publica(settings: Settings) -> None:
         assert not repo.poliformat_configured
         with pytest.raises(PublishError, match="no esta configurado"):
             await publish.obtener_deadlines(repo, 90)
+
+
+async def test_con_el_login_bloqueado_no_se_publica_ni_se_toca_cas(settings: Settings) -> None:
+    settings.cas_lock_path.parent.mkdir(parents=True, exist_ok=True)
+    settings.cas_lock_path.write_text("rechazado", encoding="utf-8")
+
+    class _NoDebeLlamarse:
+        name = "poliformat"
+
+        async def fetch(self, *, force_refresh: bool = False) -> None:
+            raise AssertionError("con el bloqueo puesto no se hace login")
+
+    with CacheRepository(settings.db_path) as cache:
+        repo = AcademicRepository(settings, cache, poliformat=_NoDebeLlamarse())  # type: ignore[arg-type]
+        with pytest.raises(PublishError, match="BLOQUEADO"):
+            await publish.obtener_deadlines(repo, 90)

@@ -17,6 +17,7 @@ from upv_mcp.config import (
     POLIFORMAT_USER_KEY,
     SCHEDULE_KEY,
     delete_secret,
+    load_settings,
     read_secret,
     write_secret,
 )
@@ -88,7 +89,19 @@ def _set_poliformat() -> int:
     write_secret(POLIFORMAT_USER_KEY, usuario)
     write_secret(POLIFORMAT_PASSWORD_KEY, clave)
     print(f"Credenciales de PoliformaT guardadas en el llavero ({KEYRING_SERVICE}).")
+    _quitar_bloqueo_cas()
     return 0
+
+
+def _quitar_bloqueo_cas() -> None:
+    """Credenciales nuevas: se vuelve a permitir el login que CAS habia rechazado."""
+    try:
+        ruta = load_settings().cas_lock_path
+    except ValueError:
+        return  # Sin origen configurado no ha podido haber ningun login.
+    if ruta.exists():
+        ruta.unlink()
+        print("Desbloqueado el login en PoliformaT: se volvera a intentar con estas.")
 
 
 def main(argv: list[str] | None = None) -> int:

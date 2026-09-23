@@ -51,6 +51,10 @@ class CasAccountLocked(CasError):
     """CAS indica cuenta bloqueada o deshabilitada."""
 
 
+class CasCredentialsRejected(CasError):
+    """CAS rechazo usuario o contrasena. Repetirlo es lo que bloquea la cuenta."""
+
+
 def _hidden_fields(html: str) -> dict[str, str]:
     """Extrae los campos ocultos del formulario de login (solo de `fm1`)."""
     match = _LOGIN_FORM.search(html)
@@ -138,7 +142,7 @@ def _comprobar_resultado(respuesta: httpx2.Response, cas_base_url: str) -> None:
     hay_formulario = _LOGIN_FORM.search(cuerpo) is not None
 
     if seguimos_en_cas and (hay_formulario or _ERROR_HINTS.search(cuerpo)):
-        raise CasError(
+        raise CasCredentialsRejected(
             "CAS rechazo las credenciales. Revisalas con `upv-mcp-config set poliformat`.\n"
             "No se reintenta a proposito: repetir intentos fallidos contra el SSO de la "
             "UPV puede bloquear tu cuenta."
