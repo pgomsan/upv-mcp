@@ -173,6 +173,14 @@ class Settings(BaseSettings):
         return self.data_dir / "cache.db"
 
     @property
+    def cas_lock_path(self) -> Path:
+        """Existe si CAS rechazo las credenciales: bloquea todo login posterior.
+
+        Lo crea `AcademicRepository` y lo borra `upv-mcp-config set poliformat`.
+        """
+        return self.data_dir / "cas-login-rechazado"
+
+    @property
     def config_dir(self) -> Path:
         return _xdg_config_home() / APP_NAME
 

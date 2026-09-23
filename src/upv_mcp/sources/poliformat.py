@@ -194,17 +194,31 @@ class PoliformatSource:
         # entrega (38 y 38 en datos reales). Verificado contra la API, no supuesto.
         cuando = datos.get("dateSubmittedEpochSeconds")
         entregado = bool(datos.get("userSubmission")) or bool(cuando)
+        corregido = bool(datos.get("graded"))
+
+        # Corregida pero sin registro de entrega a nombre de este alumno (6 casos
+        # reales: el proyecto de IHM con un 9,50 y cuatro entregas de PR3). Pasa en
+        # trabajo de grupo, donde entrega un miembro, y cuando el profesor califica
+        # a mano. Un 9,50 demuestra que el trabajo existe, asi que NOT_SUBMITTED
+        # seria falso; pero SUBMITTED afirmaria una entrega suya que no consta. Se
+        # queda en UNKNOWN, que es exactamente lo que se sabe.
+        if entregado:
+            estado = SubmissionStatus.SUBMITTED
+        elif corregido:
+            estado = SubmissionStatus.UNKNOWN
+        else:
+            estado = SubmissionStatus.NOT_SUBMITTED
 
         nota = str(datos.get("grade") or "").strip() or None
         return Submission(
-            status=SubmissionStatus.SUBMITTED if entregado else SubmissionStatus.NOT_SUBMITTED,
+            status=estado,
             submitted_at=(
                 datetime.fromtimestamp(float(cuando), tz=self._tz)
                 if isinstance(cuando, int | float)
                 else None
             ),
             late=datos.get("late") if isinstance(datos.get("late"), bool) else None,
-            graded=bool(datos.get("graded")),
+            graded=corregido,
             grade=nota,
             grade_max=str(tarea.get("gradeScaleMaxPoints") or "").strip() or None,
             feedback=_recortar(_limpiar(datos.get("feedbackComment")), 600),

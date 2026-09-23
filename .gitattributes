@@ -1,0 +1,3 @@
+# El golden del .ics se compara byte a byte y lleva CRLF por RFC 5545: git no debe
+# normalizar sus finales de linea.
+tests/data/export_ics_golden.ics -text

@@ -1,0 +1,39 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "upv-feed",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-09-22",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	// Unico almacen: el .ics publicado. El id no es secreto; se rellena con la
+	// salida de `npx wrangler kv namespace create FEED` (ver README).
+	"kv_namespaces": [
+		{
+			"binding": "FEED",
+			"id": "8a160810769440e7b012fd2acac54037",
+			"remote": true
+		}
+	],
+	// FEED_TOKEN y FEED_PATH son SECRETS (`wrangler secret put`), nunca "vars":
+	// "vars" se commitean, y FEED_PATH es la unica proteccion del feed.
+	"secrets": {
+		"required": [
+			"FEED_TOKEN",
+			"FEED_PATH"
+		]
+	},
+	// Los invocation logs y las trazas guardan la URL completa de cada peticion, y
+	// la URL del GET ES el secreto. Se desactivan; los logs propios del Worker
+	// nunca incluyen la ruta ni el token.
+	"observability": {
+		"enabled": true,
+		"logs": {
+			"enabled": true,
+			"invocation_logs": false
+		},
+		"traces": {
+			"enabled": false
+		}
+	}
+}

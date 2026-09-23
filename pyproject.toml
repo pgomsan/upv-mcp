@@ -22,6 +22,7 @@ dependencies = [
 [project.scripts]
 upv-mcp = "upv_mcp.server:main"
 upv-mcp-config = "upv_mcp.cli:main"
+upv-publish = "upv_mcp.publish:main"
 
 [dependency-groups]
 dev = [

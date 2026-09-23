@@ -58,3 +58,22 @@ def test_solo_server_importa_el_sdk() -> None:
 
 def test_repository_no_conoce_mcp() -> None:
     assert "mcp" not in _imported_modules(SRC / "repository.py")
+
+
+def test_export_ics_es_pura() -> None:
+    """El generador del .ics recibe modelos y devuelve texto: ni red, ni cache, ni MCP."""
+    tree = ast.parse((SRC / "export_ics.py").read_text(encoding="utf-8"))
+    importados: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            importados.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            importados.add(node.module)
+    prohibidos = {
+        m
+        for m in importados
+        if m.split(".")[0] in {"mcp", "httpx2", "httpx", "sqlite3", "icalendar", "pathlib"}
+        or m.startswith(("upv_mcp.server", "upv_mcp.cache", "upv_mcp.repository"))
+        or m.startswith("upv_mcp.sources")
+    }
+    assert not prohibidos, f"export_ics.py importa {prohibidos}"

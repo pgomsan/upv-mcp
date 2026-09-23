@@ -38,10 +38,24 @@ INSTRUCTIONS = """\
 Calendario academico de un estudiante de la UPV (Universitat Politecnica de \
 Valencia). Todas las horas son locales de Valencia (Europe/Madrid).
 
+Cubre el horario de clases y los examenes, de los calendarios .ics de la UPV, y \
+PoliformaT: entregas con su estado y su nota, avisos de los profesores y materiales \
+de cada asignatura.
+
 Elige la tool por el tipo de pregunta: get_next_class para lo inmediato sin fecha, \
-get_schedule cuando haya un dia o un rango, y list_upcoming_deadlines para fechas \
-limite. Revisa siempre meta.coverage_note antes de afirmar que algo no existe: esta \
-version no ve los examenes ni las entregas de PoliformaT.\
+get_schedule cuando haya un dia o un rango, list_upcoming_deadlines para fechas \
+limite (entregas y examenes), list_announcements para lo que publican los \
+profesores, y read_material para leer un fichero concreto. Para saber QUE materiales \
+hay, los resources `upv://materiales`, no una tool.
+
+Lo que NO hay: las notas del expediente. Solo se ven las de las tareas ya corregidas \
+en PoliformaT, con su escala.
+
+Revisa siempre meta.coverage_note antes de afirmar que algo no existe. Una lista \
+vacia puede significar "no hay nada" o "los datos no llegan hasta ahi", y el aviso \
+dice cual de las dos: el calendario de examenes y PoliformaT son opcionales, y el \
+calendario academico se publica por curso, asi que en verano todavia no cubre \
+septiembre.\
 """
 
 

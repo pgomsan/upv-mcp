@@ -126,3 +126,38 @@ async def test_los_resources_de_materiales_estan_registrados() -> None:
 
     assert materials_tool.COURSE_URI_TEMPLATE in plantillas
     assert materials_tool.INDEX_URI in estaticos
+
+
+def test_las_notas_del_expediente_no_las_da_ninguna_tool() -> None:
+    """ "Que nota tengo en Estadistica" no es una fecha limite corregida.
+
+    En la ronda con subagentes, `list_upcoming_deadlines` se disparaba con esa
+    pregunta: devuelve notas, pero de TAREAS. Confundir la nota de una practica con
+    la nota de la asignatura es de las respuestas mas creibles y mas falsas que
+    puede dar el servidor, asi que la descripcion tiene que cortarlo.
+    """
+    texto = deadlines_tool.DESCRIPTION
+    assert "NINGUNA tool" in texto
+    assert "el expediente no se expone" in texto
+    assert "no son la nota de la asignatura" in texto
+
+
+def test_las_dos_tools_coinciden_en_quien_lleva_los_examenes() -> None:
+    """Ambas devuelven examenes: sin doctrina explicita, el modelo elige a suertes.
+
+    La regla es la misma que para las clases: con un tramo de fechas manda
+    get_schedule, sin fechas manda list_upcoming_deadlines. Cada descripcion tiene
+    que decirlo mirando a la otra, o solo se lee una de las dos.
+    """
+    assert "examenes en junio" in deadlines_tool.DESCRIPTION, "manda a get_schedule"
+    assert "get_schedule" in deadlines_tool.DESCRIPTION
+    assert "tengo examenes en junio" in schedule_tool.DESCRIPTION, "los acepta"
+    assert "SIN acotar fechas" in schedule_tool.DESCRIPTION, "y devuelve el resto"
+    assert "list_upcoming_deadlines" in schedule_tool.DESCRIPTION
+
+
+def test_el_horario_dice_que_trae_el_docente() -> None:
+    """Sin esto, buscar quien da una asignatura degenera en tantear rangos sueltos."""
+    texto = schedule_tool.DESCRIPTION
+    assert "docente" in texto
+    assert "quien da" in texto, "con la pregunta literal, no solo el nombre del campo"

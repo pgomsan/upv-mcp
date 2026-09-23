@@ -10,7 +10,9 @@ import pytest
 
 from upv_mcp.cache.db import CacheRepository
 from upv_mcp.config import Settings
+from upv_mcp.models import EventKind
 from upv_mcp.repository import AcademicRepository
+from upv_mcp.sources.ics import IcsSource
 from upv_mcp.tools.deadlines import list_upcoming_deadlines
 from upv_mcp.tools.next_class import get_next_class
 from upv_mcp.tools.schedule import get_schedule
@@ -172,6 +174,26 @@ async def test_deadlines_devuelve_examenes_si_hay_calendario(
         )
 
 
+async def test_los_examenes_no_cuentan_como_entregas_sin_estado(
+    tmp_path: Path, horario_ics: Path, examenes_ics: Path
+) -> None:
+    """Regresion: 10 examenes salian como "10 de las entregas no traen estado".
+
+    Un examen del .ics nunca tiene submission, y eso no es un dato que falte.
+    """
+    settings = Settings(
+        schedule_ics_file=horario_ics,
+        exams_ics_file=examenes_ics,
+        data_dir=tmp_path / "d",
+    )
+    with CacheRepository(settings.db_path) as cache:
+        repo = _repo_en(settings, cache, datetime(2026, 1, 1, tzinfo=MADRID))
+        resultado = await list_upcoming_deadlines(repo, 60, limit=50)
+
+        assert {d.kind for d in resultado.deadlines} == {EventKind.EXAM}
+        assert "no traen estado de entrega" not in (resultado.meta.coverage_note or "")
+
+
 async def test_deadlines_valida_el_horizonte(repo: AcademicRepository) -> None:
     with pytest.raises(ValueError, match="entre 1 y 365"):
         await list_upcoming_deadlines(repo, 0, limit=50)
@@ -302,6 +324,20 @@ def _con_entregas(settings: Settings, cache: CacheRepository) -> AcademicReposit
                 source=SourceName.POLIFORMAT,
                 submission=Submission(status=SubmissionStatus.UNKNOWN),
             ),
+            Assignment(
+                uid="corregida",
+                kind=EventKind.ASSIGNMENT,
+                title="Corregida pero marcada como no entregada",
+                course=curso,
+                due=base,
+                source=SourceName.POLIFORMAT,
+                submission=Submission(
+                    status=SubmissionStatus.NOT_SUBMITTED,
+                    graded=True,
+                    grade="9,50",
+                    grade_max="10,00",
+                ),
+            ),
         ],
     )
     return _repo_en(settings, cache, datetime(2026, 2, 20, tzinfo=MADRID))
@@ -327,14 +363,29 @@ async def test_pending_only_no_cuela_lo_desconocido(
     assert "ni-idea" not in [d.uid for d in resultado.deadlines]
 
 
+async def test_pending_only_no_cuela_lo_ya_corregido(
+    settings: Settings, cache: CacheRepository
+) -> None:
+    """Con un 9,50 puesto, no queda nada que entregar, diga lo que diga el estado.
+
+    PoliformaT marca NOT_SUBMITTED tareas ya corregidas cuando la entrega es de
+    grupo. El invariante vive en el modelo para que ninguna fuente pueda reintroducir
+    la contradiccion.
+    """
+    repo = _con_entregas(settings, cache)
+    resultado = await list_upcoming_deadlines(repo, 30, 0, True, limit=50)
+
+    assert "corregida" not in [d.uid for d in resultado.deadlines]
+
+
 async def test_sin_filtro_devuelve_todas_y_avisa_de_las_desconocidas(
     settings: Settings, cache: CacheRepository
 ) -> None:
     repo = _con_entregas(settings, cache)
     resultado = await list_upcoming_deadlines(repo, 30, limit=50)
 
-    assert len(resultado.deadlines) == 3
-    assert "no traen estado de entrega" in (resultado.meta.coverage_note or "")
+    assert len(resultado.deadlines) == 4
+    assert "1 de las entregas listadas no traen estado" in (resultado.meta.coverage_note or "")
 
 
 async def test_el_estado_sobrevive_a_la_cache(settings: Settings, cache: CacheRepository) -> None:
@@ -375,8 +426,41 @@ async def test_schedule_asignatura_inexistente_avisa(repo: AcademicRepository) -
 
     assert resultado.sessions == []
     nota = resultado.meta.coverage_note or ""
-    assert "Ninguna asignatura coincide" in nota
+    assert "Ninguna asignatura tuya se llama" in nota
     assert "Estadística" in nota, "debe listar las asignaturas reales"
+
+
+async def test_schedule_encuentra_asignatura_escrita_sin_tildes(
+    repo: AcademicRepository,
+) -> None:
+    """Nadie teclea tildes en un chat, pero el .ics de la UPV las trae."""
+    con_tilde = await get_schedule(
+        repo, date(2024, 1, 1), date(2026, 12, 31), "Programación de Robots", limit=200
+    )
+    sin_tilde = await get_schedule(
+        repo, date(2024, 1, 1), date(2026, 12, 31), "programacion de robots", limit=200
+    )
+
+    assert con_tilde.sessions, "el fixture debe traer esa asignatura"
+    assert {s.uid for s in sin_tilde.sessions} == {s.uid for s in con_tilde.sessions}
+
+
+async def test_schedule_no_niega_una_asignatura_real_sin_clases_en_el_rango(
+    repo: AcademicRepository,
+) -> None:
+    """El fallo que mas dano hace: decirle que Estadistica no es suya.
+
+    Vacio por el rango y vacio por el nombre se veian igual, y el aviso afirmaba lo
+    segundo mientras listaba la asignatura entre las suyas, contradiciendose.
+    """
+    resultado = await get_schedule(
+        repo, date(2026, 1, 1), date(2026, 1, 31), "Estadistica", limit=50
+    )
+
+    assert resultado.sessions == []
+    nota = resultado.meta.coverage_note or ""
+    assert "Estadística SI es una asignatura tuya" in nota
+    assert "Ninguna asignatura tuya se llama" not in nota
 
 
 async def test_deadlines_filtra_por_asignatura(
@@ -431,3 +515,131 @@ async def test_no_avisa_si_los_datos_cubren_la_pregunta(
         resultado = await list_upcoming_deadlines(repo, 5, limit=50)
 
         assert "Los datos publicados llegan hasta" not in (resultado.meta.coverage_note or "")
+
+
+async def test_schedule_avisa_si_el_rango_se_pasa_del_calendario_de_examenes(
+    tmp_path: Path, horario_ics: Path, examenes_ics: Path
+) -> None:
+    """La forma mas creible de mentir que tiene esta tool.
+
+    Caso real de la ronda con subagentes: se pregunta por un tramo de octubre, el
+    horario si llega (las clases se publican por curso) pero el calendario de
+    examenes acabo en junio. Devolver las clases y ningun examen, sin decir nada, se
+    lee como "no tienes examenes en ese tramo" cuando lo cierto es que las fechas del
+    curso siguiente aun no se han determinado.
+    """
+    settings = Settings(
+        schedule_ics_file=horario_ics, exams_ics_file=examenes_ics, data_dir=tmp_path / "d"
+    )
+    with CacheRepository(settings.db_path) as cache:
+        repo = _repo_en(settings, cache, datetime(2026, 7, 29, tzinfo=MADRID))
+        # Los examenes del fixture son de enero de 2026; se pregunta mas alla.
+        resultado = await get_schedule(repo, date(2026, 10, 1), date(2026, 10, 31), limit=50)
+
+        nota = resultado.meta.coverage_note or ""
+        assert "El calendario de EXAMENES acaba el" in nota
+        assert "todavia no estan determinadas" in nota
+        assert "no digas que no hay ninguno" in nota
+
+
+def _clases_mas_alla_de_los_examenes(
+    cache: CacheRepository, settings: Settings, horario_ics: Path, examenes_ics: Path
+) -> None:
+    """Deja la cache como estan los datos reales: clases que llegan mas lejos.
+
+    En los fixtures pasa al reves (clases de 2024, examenes de 2026), y es el orden
+    contrario el que produce el fallo que se quiere cubrir.
+    """
+    from upv_mcp.models import ClassSession, Course
+
+    src = IcsSource(settings)
+    clases = src.parse(horario_ics.read_text(encoding="utf-8"), "schedule")
+    examenes = src.parse(examenes_ics.read_text(encoding="utf-8"), "exams")
+
+    tardia = ClassSession(
+        uid="clase-de-diciembre",
+        kind=EventKind.CLASS,
+        course=Course(code="14556", name="Modelado y Control de Robots"),
+        start=datetime(2026, 12, 22, 15, 0, tzinfo=MADRID),
+        end=datetime(2026, 12, 22, 17, 0, tzinfo=MADRID),
+    )
+    cache.replace_calendar("schedule", [*clases.sessions, tardia])
+    cache.replace_calendar("exams", examenes.sessions, examenes.assignments)
+
+
+async def test_el_aviso_de_examenes_dice_que_las_clases_SI_estan(
+    tmp_path: Path, horario_ics: Path, examenes_ics: Path
+) -> None:
+    """Regresion de la ronda 2 con subagentes.
+
+    El aviso anterior solo nombraba lo que faltaba, y el modelo lo comprimia de "el
+    calendario de examenes" a "el calendario": acabo respondiendo "de julio en
+    adelante no hay datos" cuando las clases estaban publicadas hasta diciembre.
+    Decir en el mismo aviso hasta donde SI llegan las clases es lo que lo corta.
+    """
+    settings = Settings(
+        schedule_ics_file=horario_ics, exams_ics_file=examenes_ics, data_dir=tmp_path / "d"
+    )
+    with CacheRepository(settings.db_path) as cache:
+        _clases_mas_alla_de_los_examenes(cache, settings, horario_ics, examenes_ics)
+        repo = _repo_en(settings, cache, datetime(2026, 7, 29, tzinfo=MADRID))
+
+        resultado = await get_schedule(repo, date(2026, 10, 1), date(2026, 10, 31), limit=50)
+
+        nota = resultado.meta.coverage_note or ""
+        assert "Las CLASES si estan publicadas hasta el 2026-12-22" in nota
+        assert "ni que faltan las clases" in nota
+        assert "El horario de clases publicado acaba" not in nota, "octubre SI esta cubierto"
+
+
+async def test_el_ultimo_dia_cubierto_no_dispara_el_aviso(
+    tmp_path: Path, horario_ics: Path, examenes_ics: Path
+) -> None:
+    """Se compara por dia, no por instante.
+
+    El rango llega a las 23:59 y el ultimo examen puede ser a las 11:00 del mismo
+    dia: comparando instantes, preguntar justo por el mes que SI esta cubierto
+    disparaba el aviso.
+    """
+    settings = Settings(
+        schedule_ics_file=horario_ics, exams_ics_file=examenes_ics, data_dir=tmp_path / "d"
+    )
+    with CacheRepository(settings.db_path) as cache:
+        _clases_mas_alla_de_los_examenes(cache, settings, horario_ics, examenes_ics)
+        repo = _repo_en(settings, cache, datetime(2026, 7, 29, tzinfo=MADRID))
+        ultimo = cache.latest_known_session(EventKind.EXAM)
+        assert ultimo is not None
+
+        resultado = await get_schedule(repo, ultimo.date(), ultimo.date(), limit=50)
+
+        assert "El calendario de EXAMENES acaba el" not in (resultado.meta.coverage_note or "")
+
+
+async def test_schedule_no_avisa_si_el_rango_cabe_en_los_dos_calendarios(
+    tmp_path: Path, horario_ics: Path, examenes_ics: Path
+) -> None:
+    """El aviso solo cuando hace falta: en toda respuesta seria ruido, y se ignora."""
+    settings = Settings(
+        schedule_ics_file=horario_ics, exams_ics_file=examenes_ics, data_dir=tmp_path / "d"
+    )
+    with CacheRepository(settings.db_path) as cache:
+        repo = _repo_en(settings, cache, datetime(2024, 9, 12, tzinfo=MADRID))
+        resultado = await get_schedule(repo, date(2024, 9, 12), date(2024, 9, 12), limit=50)
+
+        nota = resultado.meta.coverage_note or ""
+        assert "acaba el" not in nota
+
+
+async def test_schedule_avisa_del_horizonte_aunque_devuelva_clases(
+    tmp_path: Path, horario_ics: Path, examenes_ics: Path
+) -> None:
+    """Una lista NO vacia es la que mas enganya: parece que la respuesta esta completa."""
+    settings = Settings(
+        schedule_ics_file=horario_ics, exams_ics_file=examenes_ics, data_dir=tmp_path / "d"
+    )
+    with CacheRepository(settings.db_path) as cache:
+        repo = _repo_en(settings, cache, datetime(2026, 7, 29, tzinfo=MADRID))
+        resultado = await get_schedule(repo, date(2024, 9, 12), date(2026, 12, 31), limit=200)
+
+        assert resultado.sessions, "hay clases en el rango"
+        assert "El calendario de EXAMENES acaba el" in (resultado.meta.coverage_note or "")

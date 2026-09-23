@@ -1,6 +1,8 @@
 # Datos personales y secretos: NUNCA se commitean
 *.ics
 !tests/fixtures/*.ics
+# Golden sintetico del generador (tests/test_export_ics.py); solo este fichero.
+!tests/data/export_ics_golden.ics
 .env
 .env.*
 *.db
@@ -8,6 +10,13 @@
 *.sqlite3
 secrets.json
 config.local.toml
+
+# Secretos locales del Worker. La salida de upv-publish (build/entregas.ics) ya la
+# cubren *.ics y build/ (mas abajo, en Python).
+worker/.dev.vars
+worker/node_modules/
+worker/.wrangler/
+worker/worker-configuration.d.ts
 
 # Python
 __pycache__/

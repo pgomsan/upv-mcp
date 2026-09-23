@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import unicodedata
 from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 from importlib import resources
@@ -32,7 +33,29 @@ from upv_mcp.models import (
 )
 
 #: Version de esquema que espera este codigo. Subirla obliga a anadir migracion.
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 6
+
+#: Migracion 6: hash de la ultima subida del feed, para no resubir lo mismo.
+_MIGRACION_6 = """
+CREATE TABLE IF NOT EXISTS ics_feed_upload (
+    feed        TEXT PRIMARY KEY,
+    sha256      TEXT NOT NULL,
+    uploaded_at TEXT NOT NULL
+);
+"""
+
+#: Migracion 5: estado de los eventos del .ics de entregas publicado (SEQUENCE y
+#: LAST-MODIFIED que ya han visto los clientes suscritos). Ver ics_state.py.
+_MIGRACION_5 = """
+CREATE TABLE IF NOT EXISTS ics_event_state (
+    uid           TEXT PRIMARY KEY,
+    due           TEXT NOT NULL,
+    summary       TEXT NOT NULL,
+    sequence      INTEGER NOT NULL,
+    last_modified TEXT NOT NULL,
+    retired_at    TEXT
+);
+"""
 
 #: Migracion 4: asignaturas de PoliformaT y su sitio de Sakai. Permite pedir los
 #: materiales de una sola asignatura en vez de los de todas.
@@ -140,6 +163,10 @@ def migrate(conn: sqlite3.Connection) -> None:
             _anadir_columnas(conn, "assignments", _COLUMNAS_3)
         if current < 4:
             conn.executescript(_MIGRACION_4)
+        if current < 5:
+            conn.executescript(_MIGRACION_5)
+        if current < 6:
+            conn.executescript(_MIGRACION_6)
 
         # Una migracion suele anadir datos que las descargas anteriores no
         # guardaron (tablas nuevas, columnas nuevas). Si se deja la cache marcada
@@ -184,6 +211,18 @@ def _course(row: sqlite3.Row) -> Course:
         name=row["course_name"],
         acronym=row["course_acronym"],
     )
+
+
+def normaliza(texto: str) -> str:
+    """Minusculas y sin tildes, para comparar como escribe la gente.
+
+    Nadie teclea "Estadistica" con tilde en un chat, pero el .ics de la UPV la trae
+    ("Estadística"). SQLite no sabe de tildes: su LOWER() y su LIKE son ASCII, asi
+    que `LIKE '%estadistica%'` NO encuentra "Estadística". Por eso el filtro por
+    asignatura resuelve el nombre aqui, en Python, y no en SQL.
+    """
+    descompuesto = unicodedata.normalize("NFD", texto.casefold())
+    return "".join(c for c in descompuesto if not unicodedata.combining(c))
 
 
 class CacheRepository:
@@ -308,22 +347,71 @@ class CacheRepository:
 
     # -- Lectura ------------------------------------------------------------------
 
-    def _course_clause(self, course: str | None) -> tuple[str, list[object]]:
-        """Filtro por asignatura: por codigo exacto, o por texto en nombre o siglas.
+    def catalogo(self) -> list[Course]:
+        """Todas las asignaturas que aparecen en la cache, de horario o de entregas.
 
-        El usuario dice "Vision por Computador" o "VC", no "14537", asi que la
-        busqueda por nombre es por subcadena y sin distinguir mayusculas.
+        Incluye las de cursos anteriores: sirve para decidir si un nombre es de una
+        asignatura suya, que es una pregunta distinta de si tiene clases esta semana.
+        """
+        filas = self._conn.execute(
+            """
+            SELECT course_code, course_name, MIN(course_acronym) AS course_acronym
+            FROM (
+                SELECT course_code, course_name, course_acronym FROM sessions
+                UNION
+                SELECT course_code, course_name, course_acronym FROM assignments
+            )
+            GROUP BY course_code, course_name
+            ORDER BY course_name
+            """
+        )
+        return [_course(row) for row in filas]
+
+    def known_course_names(self) -> list[str]:
+        """Nombres de asignatura, unicos y ordenados, para listarselos al usuario.
+
+        `catalogo` trae una entrada por (codigo, nombre) y los examenes vienen sin
+        codigo, asi que la misma asignatura sale dos veces. Aqui interesa el nombre.
+        """
+        return sorted({c.name for c in self.catalogo()})
+
+    def matching_course_names(self, course: str) -> list[str]:
+        """Nombres EXACTOS (tal como estan guardados) que encajan con lo que se pidio.
+
+        Devuelve nombres y no codigos porque los examenes vienen del iCal con
+        `course_code` vacio: filtrar por codigo los dejaria fuera. Comparar valores
+        guardados contra valores guardados tambien evita el problema de las tildes.
+        """
+        termino = course.strip()
+        if not termino:
+            return []
+        cursos = self.catalogo()
+        if termino.isdigit():
+            nombres = {c.name for c in cursos if c.code == termino}
+        else:
+            objetivo = normaliza(termino)
+            nombres = {
+                c.name
+                for c in cursos
+                if objetivo in normaliza(c.name) or (c.acronym and normaliza(c.acronym) == objetivo)
+            }
+        return sorted(nombres)
+
+    def _course_clause(self, course: str | None) -> tuple[str, list[object]]:
+        """Filtro por asignatura, resuelto antes a los nombres reales del catalogo.
+
+        `matching_course_names` hace el encaje difuso (codigo, siglas, subcadena sin
+        tildes) y aqui solo queda una igualdad exacta, que SQLite si sabe hacer bien.
         """
         if not course:
             return "", []
-        termino = course.strip()
-        if termino.isdigit():
-            return " AND course_code = ?", [termino]
-        patron = f"%{termino.lower()}%"
-        return (
-            " AND (LOWER(course_name) LIKE ? OR LOWER(COALESCE(course_acronym,'')) = ?)",
-            [patron, termino.lower()],
-        )
+        nombres = self.matching_course_names(course)
+        if not nombres:
+            # Ninguna asignatura encaja: que no devuelva nada, en vez de ignorar el
+            # filtro y soltar el horario entero.
+            return " AND 0", []
+        marcas = ",".join("?" * len(nombres))
+        return f" AND course_name IN ({marcas})", list(nombres)
 
     def sessions_between(
         self,
@@ -405,13 +493,35 @@ class CacheRepository:
         return [self._row_to_assignment(r) for r in self._conn.execute(sql, params)]
 
     def latest_known_due(self) -> datetime | None:
-        """Fecha limite mas lejana que se conoce, de cualquier origen.
+        """Hasta donde llegan las fechas limite publicadas, para TODOS los origenes.
 
         Permite distinguir "no tienes nada" de "los datos no llegan hasta ahi": el
         calendario de examenes se publica por curso academico, asi que en verano no
         cubre el curso siguiente.
+
+        Es el MINIMO de los horizontes de cada `kind`, no el maximo de todo junto.
+        Las tareas de PoliformaT y los examenes se publican por separado y no llegan
+        igual de lejos: si las tareas alcanzan diciembre y los examenes acaban en
+        junio, un MAX anunciaria diciembre y se comeria justo el hueco que este
+        aviso existe para delatar. El horizonte honesto acaba donde acaba la primera
+        de las dos fuentes.
         """
-        fila = self._conn.execute("SELECT MAX(due_utc) AS f FROM assignments").fetchone()
+        filas = self._conn.execute("SELECT MAX(due_utc) AS f FROM assignments GROUP BY kind")
+        horizontes = [_from_iso(fila["f"], self._tz) for fila in filas if fila["f"]]
+        return min(horizontes) if horizontes else None
+
+    def latest_known_session(self, kind: EventKind) -> datetime | None:
+        """Ultimo evento de ese tipo que hay en el horario.
+
+        `get_schedule` mezcla clases y examenes, que vienen de dos .ics distintos y
+        no cubren el mismo periodo. Sin el horizonte de cada uno por separado, un
+        rango que se sale del calendario de examenes devuelve las clases y ningun
+        examen, y eso se lee como "no tienes examenes" en vez de "todavia no se
+        han publicado".
+        """
+        fila = self._conn.execute(
+            "SELECT MAX(start_utc) AS f FROM sessions WHERE kind = ?", (kind.value,)
+        ).fetchone()
         return _from_iso(fila["f"], self._tz) if fila and fila["f"] else None
 
     def count_assignments_between(
