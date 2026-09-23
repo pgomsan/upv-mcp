@@ -87,8 +87,21 @@ uv run upv-publish --dry-run   # imprime el .ics, no escribe ni sube nada
 uv run upv-publish             # genera build/entregas.ics y lo sube
 ```
 
-Si lo lanzas desde launchd, `UPV_FEED_URL` va en `EnvironmentVariables` del plist.
-El token NO: se lee del Llavero en cada pasada.
+Para que se ejecute solo cada hora (y al despertar el Mac), instala el agente de
+launchd desde la raiz del repo:
+
+```bash
+scripts/launchd.sh instalar "https://upv-feed.<tu-subdominio>.workers.dev/entregas.ics"
+scripts/launchd.sh estado        # ultima ejecucion y ultimas lineas del log
+scripts/launchd.sh desinstalar
+```
+
+El plist solo lleva la URL del PUT. El token se lee del Llavero en cada pasada y
+la URL del feed no aparece en ningun sitio. Log: `~/Library/Logs/upv-publish.log`.
+
+Si CAS rechaza tu contrasena (p.ej. porque la cambiaste), el agente deja de hacer
+login hasta que ejecutes `upv-mcp-config set poliformat`: repetir un login
+rechazado cada hora bloquearia tu cuenta UPV. Lo veras en el log.
 
 ### 5. Suscribirse desde el iPhone
 
