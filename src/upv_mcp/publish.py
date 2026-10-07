@@ -37,7 +37,7 @@ from pathlib import Path
 import httpx2
 
 from upv_mcp.cache.db import CacheRepository
-from upv_mcp.config import load_settings
+from upv_mcp.config import Settings, load_settings
 from upv_mcp.export_ics import EventState, build_calendar, motivo_exclusion
 from upv_mcp.ics_state import SqliteEventStateStore
 from upv_mcp.models import Assignment
@@ -56,6 +56,12 @@ _SIN_LIMITE = 100_000
 KEYCHAIN_ACCOUNT = "upv-mcp"
 KEYCHAIN_SERVICE = "upv-feed-token"
 FEED_URL_ENV = "UPV_FEED_URL"
+
+#: Caducidad de la cache para el publicador. El agente de launchd corre cada hora;
+#: con la caducidad general (6 h) una entrega nueva tardaba hasta 6 h en llegar al
+#: movil. Asi cada pasada consulta PoliformaT: un login correcto por hora. Si CAS
+#: rechaza uno, el bloqueo persistente de repository.py corta todos los demas.
+TTL_PUBLICADOR_S = 55 * 60
 
 INTENTOS = 3
 BACKOFF_BASE_S = 1.0
@@ -139,6 +145,15 @@ async def obtener_deadlines(repo: AcademicRepository, days: int) -> list[Assignm
             f"{resultado.meta.total_matching}). No se publica un feed incompleto."
         )
     return list(resultado.deadlines)
+
+
+def settings_publicador(settings: Settings) -> Settings:
+    """La misma configuracion, con la cache caducando en cada pasada horaria.
+
+    55 min y no 60: launchd no es puntual al segundo, y con 60 una pasada que llega
+    un poco antes de tiempo se encontraria la cache aun fresca y no consultaria.
+    """
+    return settings.model_copy(update={"cache_ttl_seconds": TTL_PUBLICADOR_S})
 
 
 def huella(ics: str) -> str:
@@ -376,7 +391,7 @@ def main(argv: list[str] | None = None) -> int:
     modo = ", dry-run" if args.dry_run else ""
     log.info("upv-publish: inicio (horizonte %d dias%s).", args.days, modo)
     try:
-        settings = load_settings()
+        settings = settings_publicador(load_settings())
         settings.ensure_dirs()
         with CacheRepository(settings.db_path, settings.timezone) as cache:
             repo = AcademicRepository(settings, cache)

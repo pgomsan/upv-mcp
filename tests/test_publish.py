@@ -438,3 +438,11 @@ async def test_con_el_login_bloqueado_no_se_publica_ni_se_toca_cas(settings: Set
         repo = AcademicRepository(settings, cache, poliformat=_NoDebeLlamarse())  # type: ignore[arg-type]
         with pytest.raises(PublishError, match="BLOQUEADO"):
             await publish.obtener_deadlines(repo, 90)
+
+
+def test_el_publicador_consulta_poliformat_en_cada_pasada_horaria(settings: Settings) -> None:
+    """Regresion: con la cache de 6 h, una entrega nueva tardaba hasta 6 h en salir."""
+    propia = publish.settings_publicador(settings)
+    assert propia.cache_ttl_seconds < 60 * 60, "el agente corre cada hora"
+    assert propia.db_path == settings.db_path
+    assert settings.cache_ttl_seconds == 6 * 60 * 60, "el servidor MCP no cambia"
